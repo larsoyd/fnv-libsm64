@@ -1,5 +1,6 @@
 #include "core/config.h"
 #include "core/rom.h"
+#include "game/fnv.h"
 #include "game/log.h"
 #include "game/nvse.h"
 
@@ -18,6 +19,11 @@ Config g_config;
 std::vector<uint8_t> g_rom;
 uint32_t g_frames;
 bool g_ready, g_done;
+
+const uint32_t kMenuFrames = 60;
+const uint32_t kSettleFrames = 120;
+const uint32_t kScenarioTimeout = 3000;
+uint32_t g_settled;
 
 std::string read_text(const std::string &path) {
     std::vector<uint8_t> b = read_file(path);
@@ -40,13 +46,49 @@ void on_post_load() {
     g_ready = true;
 }
 
+void finish(bool ok, const char *reason) {
+    if (ok) logf("scenario done name=%s frames=%u", g_config.scenario.c_str(), g_frames);
+    else logf("refused: scenario=%s reason=%s frame=%u", g_config.scenario.c_str(), reason, g_frames);
+    g_done = true;
+}
+
+void run_console(const std::string &line) {
+    unsigned ret = g_console ? g_console->runScriptLine(line.c_str(), nullptr) : 0;
+    logf("console line=%s ok=%d ret=%u", line.c_str(), ret != 0, ret);
+}
+
+fnv::TESObjectCELL *loaded_cell() {
+    fnv::TESObjectREFR *p = fnv::player();
+    if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) return nullptr;
+    fnv::TESObjectCELL *c = p->parentCell;
+    bool has_3d = p->renderState && p->renderState->niNode;
+    return has_3d && fnv::vtbl_of(c) == fnv::kVtblTESObjectCELL ? c : nullptr;
+}
+
+int count_refs(const fnv::TESObjectCELL *c) {
+    int n = 0;
+    for (const fnv::ListNode<fnv::TESObjectREFR> *it = &c->objectList; it; it = it->next) n += it->data != nullptr;
+    return n;
+}
+
+void tick_cell_scenario() {
+    if (g_frames == kMenuFrames) run_console("coc " + g_config.cell);
+    if (g_frames <= kMenuFrames) return;
+    fnv::TESObjectCELL *c = loaded_cell();
+    g_settled = c ? g_settled + 1 : 0;
+    if (g_settled < kSettleFrames) return;
+    fnv::TESObjectREFR *p = fnv::player();
+    logf("cell id=%08X interior=%d pos=%.1f,%.1f,%.1f refs=%d", c->form.refID, c->cellFlags & 1, p->pos[0], p->pos[1],
+         p->pos[2], count_refs(c));
+    finish(true, "");
+}
+
 void on_frame() {
     if (!g_ready || g_done) return;
     g_frames++;
-    if (!g_config.scenario.empty() && g_frames == (uint32_t)g_config.frames) {
-        logf("scenario done name=%s frames=%u", g_config.scenario.c_str(), g_frames);
-        g_done = true;
-    }
+    if (g_config.scenario == "boot" && g_frames == (uint32_t)g_config.frames) finish(true, "");
+    else if (g_config.scenario == "cell") tick_cell_scenario();
+    if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 
 void on_message(nvse::Message *m) {

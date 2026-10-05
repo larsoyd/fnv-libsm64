@@ -39,8 +39,9 @@ struct MessagingInterface {
 
 struct ConsoleInterface {
     uint32_t version;
-    bool (*runScriptLine)(const char *line, void *refr);
-    bool (*runScriptLine2)(const char *line, void *refr, bool suppressOutput);
+    // success comes back as nonzero bytes other than 1 so read a byte not a bool
+    uint8_t (*runScriptLine)(const char *line, void *refr);
+    uint8_t (*runScriptLine2)(const char *line, void *refr, bool suppressOutput);
 };
 
 enum : uint32_t {
