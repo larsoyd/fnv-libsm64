@@ -23,6 +23,7 @@ const uint32_t kMenuFrames = 60;
 const uint32_t kSettleFrames = 120;
 const uint32_t kScenarioTimeout = 3000;
 const float kCollisionRadius = 3000;
+const float kMaxScaleErr = 0.5f;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
 const float kRenderSpawnAhead = 150;
@@ -157,6 +158,10 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     SurfaceStats ss;
     std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss);
     log_collision(st, tris.size(), ss);
+    if (!st.scale_samples || st.scale_max_err > kMaxScaleErr) {
+        logf("refused: havok scale samples=%d max_err=%.3f limit=%.1f", st.scale_samples, st.scale_max_err, kMaxScaleErr);
+        return false;
+    }
     sm64_static_surfaces_load(surfaces.data(), (uint32_t)surfaces.size());
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
@@ -208,7 +213,7 @@ void render_tick() {
         logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_geo.numTrianglesUsed, m.x, m.y, m.z,
              g_sim.state.action);
         take_screenshot();
-        logf("screenshot requested tick=%d", g_sim.ticks);
+        logf("screenshot requested tick=%d menu=%d", g_sim.ticks, menu_mode());
     }
     if (g_sim.ticks == kRenderTicks) finish(true, "");
 }

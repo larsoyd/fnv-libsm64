@@ -21,6 +21,7 @@ using ShaderSetup = void(__cdecl *)(void *, uint32_t, uint32_t, uint32_t);
 using AddObject = void(__thiscall *)(void *, void *, bool);
 using UpdateDownward = void(__thiscall *)(void *, const void *, uint32_t);
 using Screenshot = void(__cdecl *)(int);
+using MenuMode = uint8_t(__cdecl *)();
 
 template <typename F> F engine(uintptr_t addr) { return reinterpret_cast<F>(addr); }
 template <typename F> F virt(void *obj, size_t off) { return reinterpret_cast<F>((*static_cast<uintptr_t **>(obj))[off / 4]); }
@@ -86,5 +87,7 @@ void mario_mesh_update(const MeshOut &m, Vec3 world) {
 }
 
 void take_screenshot() { engine<Screenshot>(0x878860)(0); }
+
+bool menu_mode() { return engine<MenuMode>(0x702360)() != 0; }
 
 }
