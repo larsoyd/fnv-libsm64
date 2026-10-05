@@ -2,6 +2,7 @@
 #include "core/frame.h"
 #include "core/mesh.h"
 #include "core/rom.h"
+#include "core/step.h"
 #include "core/surfaces.h"
 #include "game/collision.h"
 #include "game/fnv.h"
@@ -11,6 +12,7 @@
 
 #include <cmath>
 #include <string>
+#include <windows.h>
 
 using namespace sm64nv;
 
@@ -24,8 +26,10 @@ const float kCollisionRadius = 3000;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
 const float kRenderSpawnAhead = 150;
-const int kRenderShotTick = 90;
-const int kRenderTicks = 150;
+const int kRenderFaceTick = 60;
+const int kRenderShotTicks[2] = {70, 110};
+const int kRenderRunTick = 80;
+const int kRenderTicks = 120;
 
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
@@ -49,6 +53,18 @@ struct Sim {
     float floor_z = 0, min_z = 0;
 };
 Sim g_sim;
+FixedStep g_step;
+MeshOut g_mesh;
+
+double frame_seconds() {
+    static LARGE_INTEGER freq, last;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq), last = now;
+    double dt = double(now.QuadPart - last.QuadPart) / freq.QuadPart;
+    last = now;
+    return dt;
+}
 
 std::string read_text(const std::string &path) {
     std::vector<uint8_t> b = read_file(path);
@@ -146,22 +162,20 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
     logf("mario create id=%d at=%.1f,%.1f,%.1f player_heading=%.3f", g_sim.id, at.x, at.y, at.z + 60, h);
     // face back toward the player, game heading h plus a half turn
-    if (g_sim.id >= 0 && ahead > 0) sm64_set_mario_faceangle(g_sim.id, 3.14159265f - (h + 3.14159265f));
+    if (g_sim.id >= 0 && ahead > 0) sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(h + 3.14159265f));
     return g_sim.id >= 0;
 }
 
 Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.state.position[1], g_sim.state.position[2]}); }
 
-void tick_collide_scenario() {
-    if (g_sim.id < 0) {
-        fnv::TESObjectCELL *c = settle_cell();
-        if (c && !start_mario(c, 0)) finish(false, "mario_create");
-        return;
-    }
-    bool running = g_sim.ticks >= kLandTicks;
-    SM64MarioInputs in = make_inputs(0, 0, running ? 1.0f : 0.0f, {});
+void tick_mario(const SM64MarioInputs &in) {
     sm64_mario_tick(g_sim.id, &in, &g_sim.state, &g_geo);
     g_sim.ticks++;
+}
+
+void collide_tick() {
+    bool running = g_sim.ticks >= kLandTicks;
+    tick_mario(make_inputs(0, 0, running ? 1.0f : 0.0f, {}));
     Vec3 m = mario_pos();
     if (g_sim.ticks % 30 == 0)
         logf("mario tick=%d pos=%.1f,%.1f,%.1f action=%08X", g_sim.ticks, m.x, m.y, m.z, g_sim.state.action);
@@ -182,29 +196,48 @@ void tick_collide_scenario() {
     }
 }
 
-void tick_render_scenario() {
-    if (g_sim.id < 0) {
-        fnv::TESObjectCELL *c = settle_cell();
-        if (!c) return;
-        std::string why;
-        void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
-        if (!start_mario(c, kRenderSpawnAhead)) finish(false, "mario_create");
-        else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
-        return;
-    }
-    SM64MarioInputs in = make_inputs(0, 0, 0, {});
-    sm64_mario_tick(g_sim.id, &in, &g_sim.state, &g_geo);
-    g_sim.ticks++;
-    Vec3 m = mario_pos();
-    static MeshOut mesh;
-    convert_mesh(g_sim.frame, g_geo, m, {0.4f, -0.6f, 0.7f}, mesh);
-    mario_mesh_update(mesh, m);
-    if (g_sim.ticks == kRenderShotTick) {
-        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", mesh.tris, m.x, m.y, m.z, g_sim.state.action);
+void render_tick() {
+    float h = fnv::player()->rot[2];
+    bool running = g_sim.ticks >= kRenderRunTick;
+    tick_mario(make_inputs(h, running ? 1.0f : 0.0f, 0, {}));
+    // game heading h plus a half turn puts mario's face toward the camera
+    if (g_sim.ticks == kRenderFaceTick) sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(h + 3.14159265f));
+    for (int shot : kRenderShotTicks) {
+        if (g_sim.ticks != shot) continue;
+        Vec3 m = mario_pos();
+        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_geo.numTrianglesUsed, m.x, m.y, m.z,
+             g_sim.state.action);
         take_screenshot();
         logf("screenshot requested tick=%d", g_sim.ticks);
     }
     if (g_sim.ticks == kRenderTicks) finish(true, "");
+}
+
+void run_ticks(void (*tick)()) {
+    for (int n = g_step.advance(frame_seconds()); n > 0 && !g_done; n--) tick();
+}
+
+void tick_collide_scenario() {
+    if (g_sim.id >= 0) return run_ticks(collide_tick);
+    fnv::TESObjectCELL *c = settle_cell();
+    if (c && !start_mario(c, 0)) finish(false, "mario_create");
+}
+
+void tick_render_scenario() {
+    if (g_sim.id >= 0) {
+        run_ticks(render_tick);
+        Vec3 m = mario_pos();
+        convert_mesh(g_sim.frame, g_geo, m, {0.4f, -0.6f, 0.7f}, g_mesh);
+        mario_mesh_update(g_mesh, m);
+        return;
+    }
+    fnv::TESObjectCELL *c = settle_cell();
+    if (!c) return;
+    std::string why;
+    void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
+    if (!start_mario(c, kRenderSpawnAhead)) finish(false, "mario_create");
+    else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
+    frame_seconds();
 }
 
 void on_frame() {

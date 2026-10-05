@@ -31,6 +31,8 @@ inline Vec3 to_game(const Frame &f, Vec3 s) {
 }
 
 float heading_from_sm64_yaw(float yaw);
+// wrapped to plus or minus pi because libsm64 casts it straight to int16
+float sm64_yaw_from_heading(float heading);
 SM64MarioInputs make_inputs(float cam_heading, float right, float forward, Buttons buttons);
 
 }

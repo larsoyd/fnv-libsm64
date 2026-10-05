@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(WIN32)
+    # x87 turns out of range int16 casts into -32768 while sse wraps like the native tests
+    add_compile_options(-msse2 -mfpmath=sse)
+endif()
+
 set(SM64_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsm64)
 set(SM64_GEN ${SM64_DIR}/src/decomp/mario/geo.inc.c ${SM64_DIR}/src/decomp/mario/model.inc.c)
 add_custom_command(OUTPUT ${SM64_GEN}
@@ -25,7 +30,7 @@ target_include_directories(sm64 PUBLIC ${SM64_DIR}/src)
 target_compile_definitions(sm64 PUBLIC SM64_LIB_EXPORT PRIVATE GBI_FLOATS VERSION_US NO_SEGMENTED_MEMORY)
 target_compile_options(sm64 PRIVATE -fno-strict-aliasing -w)
 
-add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/orient.cpp)
+add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/orient.cpp src/core/step.cpp)
 target_include_directories(sm64nv_core PUBLIC src)
 target_link_libraries(sm64nv_core PUBLIC sm64)
 target_compile_options(sm64nv_core PRIVATE -Wall -Wextra)

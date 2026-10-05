@@ -12,6 +12,12 @@ float heading_from_sm64_yaw(float yaw) {
     return h >= kTau - 1e-6f ? 0 : h;
 }
 
+float sm64_yaw_from_heading(float heading) {
+    // libsm64 scales by its own 3.14159 so stay just inside that before the int16 cast
+    float y = std::remainder(3.14159265f - heading, kTau);
+    return std::fmax(-3.14158f, std::fmin(3.14158f, y));
+}
+
 SM64MarioInputs make_inputs(float cam_heading, float right, float forward, Buttons buttons) {
     SM64MarioInputs in{};
     in.camLookX = std::sin(cam_heading);
