@@ -1,11 +1,13 @@
 #include "core/config.h"
 #include "core/frame.h"
+#include "core/mesh.h"
 #include "core/rom.h"
 #include "core/surfaces.h"
 #include "game/collision.h"
 #include "game/fnv.h"
 #include "game/log.h"
 #include "game/nvse.h"
+#include "game/render.h"
 
 #include <cmath>
 #include <string>
@@ -21,6 +23,9 @@ const uint32_t kScenarioTimeout = 3000;
 const float kCollisionRadius = 3000;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
+const float kRenderSpawnAhead = 150;
+const int kRenderShotTick = 90;
+const int kRenderTicks = 150;
 
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
@@ -115,6 +120,8 @@ void tick_cell_scenario() {
 void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss) {
     logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u", st.refs, st.bodies, (unsigned)tris,
          ss.floors, ss.walls, ss.ceilings, ss.degenerate);
+    logf("collision orient components=%u inside=%u flipped=%u conflicts=%u", st.orient.components, st.orient.inside,
+         st.orient.flipped, st.orient.conflicts);
     logf("havok scale samples=%d max_err=%.3f node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale_samples,
          st.scale_max_err, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z, st.scale_worst_body.x,
          st.scale_worst_body.y, st.scale_worst_body.z);
@@ -122,11 +129,13 @@ void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss
     for (const auto &[layer, n] : st.skipped_layers) logf("collision skipped layer=%d count=%d", layer, n);
 }
 
-bool start_mario(fnv::TESObjectCELL *cell) {
+bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     fnv::TESObjectREFR *p = fnv::player();
-    Vec3 at{p->pos[0], p->pos[1], p->pos[2]};
+    float h = p->rot[2];
+    Vec3 at{p->pos[0] + std::sin(h) * ahead, p->pos[1] + std::cos(h) * ahead, p->pos[2]};
     CollisionStats st;
-    std::vector<Tri> tris = gather_collision(cell, at, kCollisionRadius, st);
+    Vec3 open{p->pos[0], p->pos[1], p->pos[2] + 60};
+    std::vector<Tri> tris = gather_collision(cell, at, open, kCollisionRadius, st);
     write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
     g_sim.frame = {at, g_config.scale};
     SurfaceStats ss;
@@ -135,7 +144,9 @@ bool start_mario(fnv::TESObjectCELL *cell) {
     sm64_static_surfaces_load(surfaces.data(), (uint32_t)surfaces.size());
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
-    logf("mario create id=%d at=%.1f,%.1f,%.1f", g_sim.id, at.x, at.y, at.z + 60);
+    logf("mario create id=%d at=%.1f,%.1f,%.1f player_heading=%.3f", g_sim.id, at.x, at.y, at.z + 60, h);
+    // face back toward the player, game heading h plus a half turn
+    if (g_sim.id >= 0 && ahead > 0) sm64_set_mario_faceangle(g_sim.id, 3.14159265f - (h + 3.14159265f));
     return g_sim.id >= 0;
 }
 
@@ -144,7 +155,7 @@ Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.s
 void tick_collide_scenario() {
     if (g_sim.id < 0) {
         fnv::TESObjectCELL *c = settle_cell();
-        if (c && !start_mario(c)) finish(false, "mario_create");
+        if (c && !start_mario(c, 0)) finish(false, "mario_create");
         return;
     }
     bool running = g_sim.ticks >= kLandTicks;
@@ -171,12 +182,38 @@ void tick_collide_scenario() {
     }
 }
 
+void tick_render_scenario() {
+    if (g_sim.id < 0) {
+        fnv::TESObjectCELL *c = settle_cell();
+        if (!c) return;
+        std::string why;
+        void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
+        if (!start_mario(c, kRenderSpawnAhead)) finish(false, "mario_create");
+        else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
+        return;
+    }
+    SM64MarioInputs in = make_inputs(0, 0, 0, {});
+    sm64_mario_tick(g_sim.id, &in, &g_sim.state, &g_geo);
+    g_sim.ticks++;
+    Vec3 m = mario_pos();
+    static MeshOut mesh;
+    convert_mesh(g_sim.frame, g_geo, m, {0.4f, -0.6f, 0.7f}, mesh);
+    mario_mesh_update(mesh, m);
+    if (g_sim.ticks == kRenderShotTick) {
+        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", mesh.tris, m.x, m.y, m.z, g_sim.state.action);
+        take_screenshot();
+        logf("screenshot requested tick=%d", g_sim.ticks);
+    }
+    if (g_sim.ticks == kRenderTicks) finish(true, "");
+}
+
 void on_frame() {
     if (!g_ready || g_done) return;
     g_frames++;
     if (g_config.scenario == "boot" && g_frames == (uint32_t)g_config.frames) finish(true, "");
     else if (g_config.scenario == "cell") tick_cell_scenario();
     else if (g_config.scenario == "collide") tick_collide_scenario();
+    else if (g_config.scenario == "render") tick_render_scenario();
     if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 

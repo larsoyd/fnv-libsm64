@@ -1,5 +1,6 @@
 #include "game/collision.h"
 #include "core/hull.h"
+#include "core/orient.h"
 #include "game/rtti.h"
 
 #include <cmath>
@@ -44,17 +45,22 @@ Xf compose(const Xf &outer, const Xf &inner) {
 Xf hk_transform(const void *p) { return {vec_at(p, 0), vec_at(p, 16), vec_at(p, 32), vec_at(p, 48)}; }
 
 struct Walker {
-    Vec3 lo, hi;
+    Vec3 lo, hi, open;
     std::vector<Tri> &out;
     CollisionStats &stats;
 
     bool inside(Vec3 p) const { return p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z; }
 
-    void emit(const Xf &xf, Vec3 a, Vec3 b, Vec3 c) {
-        Vec3 v[3] = {apply(xf, a), apply(xf, b), apply(xf, c)};
-        for (Vec3 &p : v) p = {p.x * kHavokToGame, p.y * kHavokToGame, p.z * kHavokToGame};
-        if (inside(v[0]) || inside(v[1]) || inside(v[2])) out.push_back({v[0], v[1], v[2]});
+    static Vec3 to_game(const Xf &xf, Vec3 p) {
+        p = apply(xf, p);
+        return {p.x * kHavokToGame, p.y * kHavokToGame, p.z * kHavokToGame};
     }
+
+    void keep(Vec3 a, Vec3 b, Vec3 c) {
+        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c});
+    }
+
+    void emit(const Xf &xf, Vec3 a, Vec3 b, Vec3 c) { keep(to_game(xf, a), to_game(xf, b), to_game(xf, c)); }
 
     void emit_all(const Xf &xf, const std::vector<Tri> &tris) {
         for (const Tri &t : tris) emit(xf, t.a, t.b, t.c);
@@ -66,14 +72,16 @@ struct Walker {
         uint32_t ntri = at<uint32_t>(data, 0x08), nvert = at<uint32_t>(data, 0x0C);
         const uint16_t *tris = at<const uint16_t *>(data, 0x14);
         const float *verts = at<const float *>(data, 0x18);
-        auto vert = [&](uint16_t i) {
-            return Vec3{verts[i * 3] * scale.x, verts[i * 3 + 1] * scale.y, verts[i * 3 + 2] * scale.z};
-        };
+        Mesh mesh;
+        for (uint32_t i = 0; i < nvert; i++)
+            mesh.verts.push_back(to_game(xf, {verts[i * 3] * scale.x, verts[i * 3 + 1] * scale.y, verts[i * 3 + 2] * scale.z}));
         for (uint32_t i = 0; i < ntri; i++) {
             const uint16_t *t = tris + i * 4;
-            // strip triangles face into the solid so swap two corners
-            if (t[0] < nvert && t[1] < nvert && t[2] < nvert) emit(xf, vert(t[0]), vert(t[2]), vert(t[1]));
+            if (t[0] < nvert && t[1] < nvert && t[2] < nvert) mesh.tris.push_back({t[0], t[1], t[2]});
         }
+        // the packed triangles keep raw strip winding so every other one faces the wrong way
+        orient_mesh(mesh, open, stats.orient);
+        for (const auto &t : mesh.tris) keep(mesh.verts[t[0]], mesh.verts[t[1]], mesh.verts[t[2]]);
     }
 
     void convex_vertices(const void *s, const Xf &xf) {
@@ -160,9 +168,9 @@ struct Walker {
 
 }
 
-std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
+std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, Vec3 open, float r, CollisionStats &stats) {
     std::vector<Tri> out;
-    Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, out, stats};
+    Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, open, out, stats};
     for (auto *it = &cell->objectList; it; it = it->next) {
         fnv::TESObjectREFR *ref = it->data;
         if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
