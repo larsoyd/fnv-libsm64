@@ -64,9 +64,10 @@ Mario ignores input while a menu, the Pip-Boy or the console is open.
 
 - Mario collides with the static world and the terrain around him, gathered again as he moves. Objects that
   move (opened doors, physics clutter, creatures) and water are not part of it.
-- Going through a door to another interior or to the outside hands control back to the Courier for a
-  moment. Mario takes over again on the other side with `autotake=1`, otherwise press M. So does fast
-  travel.
+- Loading a save hands control back to the Courier. Mario takes over again with `autotake=1`, otherwise
+  press M. Doors and fast travel keep Mario: he stands on the other side as soon as it has loaded.
+- A jump started while pushing into something lower than Mario (the underside of a car, a table edge)
+  does not leave the ground. Let go of the stick, jump, then steer.
 - The door key only reaches doors in the cell Mario stands in. Other things cannot be activated, and
   there is no combat while Mario is active.
 - Saving while Mario is active stores the Courier's own controls and camera, so the save also loads
