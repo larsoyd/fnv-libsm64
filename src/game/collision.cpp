@@ -172,10 +172,9 @@ struct Walker {
             Vec3 node_t = vec_at(node, 0x8C);
             float err = std::fabs(node_t.x - xf.t.x * kHavokToGame) + std::fabs(node_t.y - xf.t.y * kHavokToGame) +
                         std::fabs(node_t.z - xf.t.z * kHavokToGame);
-            stats.scale_samples++;
-            stats.turn_max_err = std::fmax(stats.turn_max_err, turn_error(node_transform(node), xf));
-            if (err > stats.scale_max_err) {
-                stats.scale_max_err = err;
+            if (stats.turn.add(turn_error(node_transform(node), xf))) stats.turn_worst_owner = owner;
+            if (stats.scale.add(err)) {
+                stats.scale_worst_owner = owner;
                 stats.scale_worst_node = node_t;
                 stats.scale_worst_body = {xf.t.x * kHavokToGame, xf.t.y * kHavokToGame, xf.t.z * kHavokToGame};
             }

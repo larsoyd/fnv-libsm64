@@ -1,4 +1,5 @@
 #pragma once
+#include "core/agree.h"
 #include "core/surfaces.h"
 #include "game/fnv.h"
 
@@ -15,8 +16,9 @@ struct CollisionStats {
     float land_max_err = 0;
     std::map<std::string, int> skipped_types;
     std::map<int, int> skipped_layers;
-    int scale_samples = 0;
-    float scale_max_err = 0, turn_max_err = 0;
+    // each body against its node, in game units and in the largest gap of a rotation entry
+    Agreement scale{0.5f}, turn{0.05f};
+    uint32_t scale_worst_owner = 0, turn_worst_owner = 0;
     Vec3 scale_worst_node{}, scale_worst_body{};
 };
 

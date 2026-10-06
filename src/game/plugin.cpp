@@ -6,6 +6,7 @@
 #include "core/geo.h"
 #include "core/mesh.h"
 #include "core/reach.h"
+#include "core/regather.h"
 #include "core/rom.h"
 #include "core/stall.h"
 #include "core/step.h"
@@ -49,9 +50,6 @@ const float kFaceReach = 200;
 // sm64 units around mario's middle for the faces a stall line lists
 const float kStallRange = 80;
 const size_t kStallFaces = 8;
-const float kMaxScaleErr = 0.5f;
-// largest gap allowed in any entry between a body's rotation and its node's
-const float kMaxTurnErr = 0.05f;
 const float kMaxLandErr = 1;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
@@ -159,6 +157,21 @@ const ScriptLine kOutsideScript[] = {
 const Move kOutsideMoves[] = {{"east", 160, 230}, {"border", 262, 307}};
 const ControlScript kOutside{kOutsideScript, kOutsideMoves, {}, 417};
 
+// to a farm with a turning windmill, then a run east past it
+const ScriptLine kWindmillScript[] = {
+    {45, "cow WastelandNV -11 27"},
+    {200, "player.SetAngle Z 87.1"}, {202, "mario -41650 115765 4420 87.1"}, {240, "HoldKey 17"}, {310, "ReleaseKey 17"},
+    {320, "spot past"},
+};
+const ControlScript kWindmill{kWindmillScript, {}, {}, 330};
+
+// over the highway bridge into primm, in sight of the hotel sign that keeps turning
+const ScriptLine kPrimmScript[] = {
+    {60, "player.SetAngle Z 90"}, {62, "mario -60780 -53450 5900 90"}, {110, "spot deck"}, {112, "HoldKey 17"},
+    {240, "ReleaseKey 17"}, {250, "spot far"},
+};
+const ControlScript kPrimm{kPrimmScript, {}, {}, 260};
+
 #define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
 #define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
 const ScriptLine kGamepadScript[] = {
@@ -247,7 +260,6 @@ Geo g_drawn;
 struct Sim {
     Frame frame{};
     fnv::TESObjectCELL *cell = nullptr;
-    Vec3 gathered{};
     int32_t id = -1;
     int ticks = 0, swing_until = -1;
     SM64MarioState state{};
@@ -256,6 +268,7 @@ struct Sim {
 };
 Sim g_sim;
 SurfaceWindow g_window{{}, 0, 0};
+Regather g_regather{kRegatherMove};
 std::vector<uint32_t> g_owners;
 uint32_t g_solid;
 uint32_t g_window_loads;
@@ -391,10 +404,11 @@ void tick_cell_scenario() {
 void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss) {
     logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u stood_up=%u still_steep=%u", st.refs,
          st.bodies, (unsigned)tris, ss.floors, ss.walls, ss.ceilings, ss.degenerate, ss.stood_up, ss.still_steep);
-    logf("havok scale samples=%d max_err=%.3f node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale_samples,
-         st.scale_max_err, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z, st.scale_worst_body.x,
-         st.scale_worst_body.y, st.scale_worst_body.z);
-    logf("havok turn samples=%d max_err=%.4f keyframed=%d", st.scale_samples, st.turn_max_err, st.keyframed);
+    logf("havok scale samples=%d off=%d max_err=%.3f owner=%08X node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale.samples,
+         st.scale.off, st.scale.worst, st.scale_worst_owner, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z,
+         st.scale_worst_body.x, st.scale_worst_body.y, st.scale_worst_body.z);
+    logf("havok turn samples=%d off=%d max_err=%.4f owner=%08X keyframed=%d", st.turn.samples, st.turn.off, st.turn.worst,
+         st.turn_worst_owner, st.keyframed);
     if (st.land_quads) logf("collision land cells=%d quads=%d max_err=%.3f", st.cells, st.land_quads, st.land_max_err);
     for (const auto &[name, n] : st.skipped_types) logf("collision skipped type=%s count=%d", name.c_str(), n);
     for (const auto &[layer, n] : st.skipped_layers) logf("collision skipped layer=%d count=%d", layer, n);
@@ -411,45 +425,59 @@ void log_window(const char *when) {
          (unsigned)g_window.loaded().size(), g_solid, g_window.stats.gathers, g_window.stats.flips, g_window.stats.settled, g_window_loads);
 }
 
+// why what was gathered cannot be trusted, empty when it can
+std::string distrust(const CollisionStats &st) {
+    char buf[160] = "";
+    if (!st.scale.holds())
+        snprintf(buf, sizeof buf, "havok scale samples=%d off=%d max_err=%.3f owner=%08X limit=%.1f", st.scale.samples, st.scale.off,
+                 st.scale.worst, st.scale_worst_owner, st.scale.limit);
+    else if (!st.turn.holds())
+        snprintf(buf, sizeof buf, "havok turn samples=%d off=%d max_err=%.4f owner=%08X limit=%.2f", st.turn.samples, st.turn.off,
+                 st.turn.worst, st.turn_worst_owner, st.turn.limit);
+    else if (st.land_max_err > kMaxLandErr)
+        snprintf(buf, sizeof buf, "land quads=%d max_err=%.3f limit=%.1f", st.land_quads, st.land_max_err, kMaxLandErr);
+    return buf;
+}
+
+struct Gathered {
+    size_t tris;
+    // bodies found away from their nodes and turned away from them
+    int off, turned;
+};
+
 // collision around center in mario's frame, a refusal keeps the set that was there
 // the first gather of a take also logs what it found and writes it out
-size_t gather_world(Vec3 center, bool first) {
-    g_sim.gathered = center;
+Gathered gather_world(Vec3 center, bool first) {
     CollisionStats st;
     std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
     SurfaceStats ss;
     std::vector<uint32_t> kept;
     std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &kept);
     if (first) write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris), log_collision(st, tris.size(), ss);
-    if (!st.scale_samples || st.scale_max_err > kMaxScaleErr) {
-        logf("refused: havok scale samples=%d max_err=%.3f limit=%.1f", st.scale_samples, st.scale_max_err, kMaxScaleErr);
-        return 0;
-    }
-    if (st.turn_max_err > kMaxTurnErr) {
-        logf("refused: havok turn samples=%d max_err=%.4f limit=%.2f", st.scale_samples, st.turn_max_err, kMaxTurnErr);
-        return 0;
-    }
-    if (st.land_max_err > kMaxLandErr) {
-        logf("refused: land quads=%d max_err=%.3f limit=%.1f", st.land_quads, st.land_max_err, kMaxLandErr);
-        return 0;
+    std::string why = distrust(st);
+    if (!why.empty()) {
+        logf("refused: %s", why.c_str());
+        g_regather.refused(g_sim.ticks);
+        return {0, st.scale.off, st.turn.off};
     }
     std::vector<bool> fixed;
     g_owners.clear(), g_solid = 0;
     for (uint32_t i : kept) g_owners.push_back(tris[i].owner), fixed.push_back(tris[i].solid), g_solid += tris[i].solid;
     g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale, fixed);
-    return tris.size();
+    g_regather.loaded(center);
+    return {tris.size(), st.scale.off, st.turn.off};
 }
 
 void regather_when_far() {
-    Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos), c = g_sim.gathered;
-    float moved = std::hypot(m.x - c.x, m.y - c.y, m.z - c.z);
+    Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos);
     // what was gathered still has a door he just used where it was
     bool swinging = g_sim.ticks <= g_sim.swing_until && (g_sim.swing_until - g_sim.ticks) % kDoorLookTicks == 0;
-    if (moved <= kRegatherMove && !swinging) return;
+    if (!g_regather.due(m, g_sim.ticks) && !swinging) return;
     double t0 = seconds_now();
-    size_t tris = gather_world(m, false);
-    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u", g_sim.ticks, moved, (seconds_now() - t0) * 1000, tris != 0,
-         (unsigned)tris);
+    float moved = g_regather.moved(m);
+    Gathered g = gather_world(m, false);
+    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d", g_sim.ticks, moved,
+         (seconds_now() - t0) * 1000, g.tris != 0, (unsigned)g.tris, g.off, g.turned);
 }
 
 bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
@@ -458,7 +486,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     Vec3 at{p->pos[0] + std::sin(h) * ahead, p->pos[1] + std::cos(h) * ahead, p->pos[2]};
     g_sim.frame = {at, g_config.scale};
     g_sim.cell = cell;
-    if (!gather_world(at, true)) return false;
+    if (!gather_world(at, true).tris) return false;
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_window_loads = 0, g_stall = {}, g_fit = {}, g_trail.clear();
     sync_window(s);
@@ -648,8 +676,9 @@ void log_stall(int t) {
     SM64SurfaceCollisionData *hit = nullptr;
     float ceil = sm64_surface_find_ceil(feet.x, floor + 80, feet.z, &hit);
     std::vector<size_t> faces = g_window.nearby({feet.x, feet.y + 80, feet.z}, kStallRange);
-    logf("stall tick=%d pos=%s action=%08X floor=%.1f ceil=%.1f faces=%u", t, xyz(mario_pos()).c_str(), g_sim.state.action,
-         g_sim.frame.origin.z + floor / g_sim.frame.scale, g_sim.frame.origin.z + ceil / g_sim.frame.scale, (unsigned)faces.size());
+    logf("stall tick=%d pos=%s action=%08X floor=%.1f ceil=%.1f faces=%u from_gather=%.1f", t, xyz(mario_pos()).c_str(),
+         g_sim.state.action, g_sim.frame.origin.z + floor / g_sim.frame.scale, g_sim.frame.origin.z + ceil / g_sim.frame.scale,
+         (unsigned)faces.size(), g_regather.moved(mario_pos()));
     for (size_t k = 0; k < faces.size() && k < kStallFaces; k++) {
         const SM64Surface &s = g_window.loaded()[faces[k]];
         Vec3 n = dir_to_game(surface_normal(s)), c{0, 0, 0};
@@ -898,6 +927,8 @@ void on_frame() {
     else if (g_config.scenario == "autotake") tick_control_scenario(kAutotake);
     else if (g_config.scenario == "door") tick_control_scenario(kDoor);
     else if (g_config.scenario == "outside") tick_control_scenario(kOutside);
+    else if (g_config.scenario == "windmill") tick_control_scenario(kWindmill);
+    else if (g_config.scenario == "primm") tick_control_scenario(kPrimm);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
