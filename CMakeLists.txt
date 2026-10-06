@@ -36,7 +36,7 @@ set_source_files_properties(${SM64_DIR}/src/decomp/engine/surface_collision.c PR
 set_source_files_properties(${SM64_DIR}/src/decomp/game/mario.c PROPERTIES COMPILE_DEFINITIONS
     "vec3f_find_ceil=sm64_ceil_over_floor")
 
-add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp)
+add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp src/core/actors.cpp)
 target_include_directories(sm64nv_core PUBLIC src)
 target_link_libraries(sm64nv_core PUBLIC sm64)
 target_compile_options(sm64nv_core PRIVATE -Wall -Wextra)
@@ -49,7 +49,7 @@ endif()
 if(WIN32)
     # libsm64 marks its api dllexport and the script extender skips modules with over 50 exports
     add_custom_command(TARGET sm64 POST_BUILD COMMAND ${CMAKE_OBJCOPY} --remove-section=.drectve $<TARGET_FILE:sm64>)
-    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp src/game/control.cpp src/game/sound.cpp src/game/doors.cpp)
+    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp src/game/control.cpp src/game/sound.cpp src/game/doors.cpp src/game/actors.cpp)
     set_target_properties(sm64nv PROPERTIES PREFIX "")
     target_compile_options(sm64nv PRIVATE -Wall -Wextra)
     target_link_libraries(sm64nv PRIVATE sm64nv_core winmm -static -static-libgcc -static-libstdc++)

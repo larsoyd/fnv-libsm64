@@ -261,6 +261,12 @@ std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, Col
     return out;
 }
 
+std::vector<fnv::TESObjectCELL *> loaded_cells(fnv::TESObjectCELL *cell) {
+    std::vector<fnv::TESObjectCELL *> out;
+    each_cell(cell, [&](fnv::TESObjectCELL *one) { out.push_back(one); });
+    return out;
+}
+
 int loaded_refs(fnv::TESObjectCELL *cell) {
     int n = 0;
     each_cell(cell, [&](fnv::TESObjectCELL *one) {

@@ -14,6 +14,7 @@
 #include "core/trail.h"
 #include "core/walls.h"
 #include "core/window.h"
+#include "game/actors.h"
 #include "game/collision.h"
 #include "game/control.h"
 #include "game/doors.h"
@@ -50,6 +51,8 @@ const float kFaceReach = 200;
 // sm64 units around mario's middle for the faces a stall line lists
 const float kStallRange = 80;
 const size_t kStallFaces = 8;
+// game units across the ground, an actor this near is named on a stall too
+const float kStallActor = 200;
 const float kMaxLandErr = 1;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
@@ -78,6 +81,8 @@ const uint32_t kActIdle = 0x0C400201;
 const float kStandDrop = 150;
 // frames between tries to stand mario in a new place, and how many before giving up
 const int kSeatEvery = 4, kSeatFrames = 600;
+// game units, actors this near mario are solid to him
+const float kActorReach = 600;
 
 struct ScriptLine {
     int tick;
@@ -279,6 +284,15 @@ const ScriptLine kPipboyScript[] = {
 };
 const ControlScript kPipboy{kPipboyScript, {}, {}, 215};
 
+// the doctor is stood on open floor, then a run east at him and a drop onto his head
+const ScriptLine kActorsScript[] = {
+    {42, "mario 2285 2065 7360 0"}, {50, "actor SetRestrained 1"}, {51, "actor SetPos X 2352"}, {51, "actor SetPos Y 1603.6"},
+    {51, "actor SetPos Z 7360"}, {53, "player.SetAngle Z 90"}, {55, "mario 2202 1603.6 7360 90"}, {70, "actors 600"},
+    {75, "spot west"}, {77, "HoldKey 17"}, {137, "ReleaseKey 17"}, {145, "spot blocked"},
+    {150, "mario 2352 1603.6 7560 90"}, {215, "spot dropped"}, {220, "actor SetRestrained 0"},
+};
+const ControlScript kActors{kActorsScript, {}, {}, 230};
+
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
 const int kStatusTicks = 900;
@@ -315,6 +329,9 @@ std::vector<uint32_t> g_owners;
 uint32_t g_solid;
 uint32_t g_window_loads;
 StallWatch g_stall;
+ActorBoxes g_boxes;
+std::vector<LiveActor> g_near;
+ActorStats g_actor_stats;
 LastFit g_fit;
 Trail g_trail;
 FixedStep g_step;
@@ -550,9 +567,19 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
 
 Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.state.position[1], g_sim.state.position[2]}); }
 
+// whoever stands near mario this tick, as shapes he cannot walk through
+void sync_actors() {
+    g_actor_stats = {};
+    g_near = nearby_actors(g_sim.cell, to_game(g_sim.frame, g_ticks.cur_pos), kActorReach, g_actor_stats);
+    std::vector<ActorBody> bodies;
+    for (const LiveActor &a : g_near) bodies.push_back(a.body);
+    g_boxes.sync(g_sim.frame, bodies);
+}
+
 void tick_mario(const SM64MarioInputs &in) {
     regather_when_far();
     sync_window(g_ticks.cur_pos);
+    sync_actors();
     g_ticks.tick(g_sim.id, in, g_sim.state);
     g_sim.ticks++;
 }
@@ -627,6 +654,7 @@ bool held() { return taken() || g_ctl.carry; }
 void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
+    g_boxes.clear(), g_near.clear();
 }
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
@@ -732,6 +760,9 @@ void log_stall(int t) {
     logf("stall tick=%d pos=%s action=%08X floor=%.1f ceil=%.1f faces=%u from_gather=%.1f", t, xyz(mario_pos()).c_str(),
          g_sim.state.action, g_sim.frame.origin.z + floor / g_sim.frame.scale, g_sim.frame.origin.z + ceil / g_sim.frame.scale,
          (unsigned)faces.size(), g_regather.moved(mario_pos()));
+    for (const LiveActor &a : g_near)
+        if (std::hypot(a.body.feet.x - mario_pos().x, a.body.feet.y - mario_pos().y) < kStallActor)
+            logf("stall actor ref=%08X at=%s half=%.1f,%.1f", a.body.id, xyz(a.body.feet).c_str(), a.body.half_width, a.body.half_length);
     for (size_t k = 0; k < faces.size() && k < kStallFaces; k++) {
         const SM64Surface &s = g_window.loaded()[faces[k]];
         Vec3 n = dir_to_game(surface_normal(s)), c{0, 0, 0};
@@ -789,6 +820,26 @@ void log_sound(const char *name) {
     logf("control sound name=%s peak=%d written=%u done=%u start_ms=%llu end_ms=%llu", name, st.peak, st.written, st.done,
          (unsigned long long)g_sound_from, (unsigned long long)now);
     g_sound_from = now;
+}
+
+void log_actors(float reach) {
+    ActorStats st;
+    Vec3 m = mario_pos();
+    std::vector<LiveActor> found = nearby_actors(g_ctl.cell, m, reach, st);
+    logf("control actors tick=%d near=%u seen=%d far=%d down=%d unsized=%d boxes=%u", g_ctl.tick, (unsigned)found.size(), st.seen,
+         st.away, st.down, st.unsized, (unsigned)g_boxes.size());
+    for (const LiveActor &a : found)
+        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f", a.body.id,
+             a.ref->baseForm->refID, a.ref->baseForm->typeID, xyz(a.body.feet).c_str(), a.body.heading * 180 / 3.14159265f,
+             a.body.half_width, a.body.half_length, a.body.height,
+             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z));
+}
+
+// a console line run on the actor nearest mario
+void run_on_nearest(const char *line) {
+    if (g_near.empty()) return finish(false, "no_actor");
+    unsigned ret = g_console->runScriptLine(line, g_near[0].ref);
+    logf("console actor=%08X line=%s ok=%d", g_near[0].body.id, line, ret != 0);
 }
 
 void log_doors() {
@@ -857,6 +908,8 @@ void control_tick() {
         else if (!strcmp(line.line, "sound pause")) sound_pause();
         else if (!strcmp(line.line, "sound status")) log_sound_status();
         else if (!strcmp(line.line, "doors")) log_doors();
+        else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
+        else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
         else if (!strcmp(line.line, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
@@ -1034,6 +1087,7 @@ void on_frame() {
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
+    else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.started;
