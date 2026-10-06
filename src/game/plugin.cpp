@@ -133,7 +133,7 @@ FixedStep g_step;
 MeshOut g_mesh;
 
 struct Smooth {
-    int frames = 0, still = 0;
+    int frames = 0, hitches = 0;
     float max_step = 0;
 };
 
@@ -152,14 +152,16 @@ struct Control {
 };
 Control g_ctl;
 
+double g_frame_dt;
+
 double frame_seconds() {
     static LARGE_INTEGER freq, last;
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
     if (!freq.QuadPart) QueryPerformanceFrequency(&freq), last = now;
-    double dt = double(now.QuadPart - last.QuadPart) / freq.QuadPart;
+    g_frame_dt = double(now.QuadPart - last.QuadPart) / freq.QuadPart;
     last = now;
-    return dt;
+    return g_frame_dt;
 }
 
 std::string read_text(const std::string &path) {
@@ -428,7 +430,7 @@ void control_tick() {
         if (t != mv.to) continue;
         logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
         const Smooth &sm = g_ctl.smooth;
-        logf("control smooth name=%s frames=%d still=%d max_step=%.2f", mv.name, sm.frames, sm.still, sm.max_step);
+        logf("control smooth name=%s frames=%d hitches=%d max_step=%.2f", mv.name, sm.frames, sm.hitches, sm.max_step);
     }
     if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
     if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
@@ -462,12 +464,13 @@ bool in_move(int t) {
     return false;
 }
 
-// a still frame while the sim moved is a hitch, a wall stop is not
+// a frame whose duration should carry visible motion but shows none is a hitch
 void track_smooth(float step) {
     Smooth &sm = g_ctl.smooth;
     Vec3 a = g_ticks.prev_pos, b = g_ticks.cur_pos;
-    if (std::hypot(b.x - a.x, b.y - a.y, b.z - a.z) < 0.01f) return;
-    sm.frames++, sm.still += step <= 0.01f;
+    float expected = std::hypot(b.x - a.x, b.y - a.y, b.z - a.z) / g_sim.frame.scale * g_frame_dt / FixedStep::kTick;
+    if (expected < 0.05f) return;
+    sm.frames++, sm.hitches += step < 0.01f;
     sm.max_step = std::fmax(sm.max_step, step);
 }
 
