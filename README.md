@@ -5,9 +5,6 @@ Play as Mario in Fallout: New Vegas. This xNVSE plugin runs Super Mario 64's own
 characters and creatures around him, draws Mario and his dust and stars with textures read from your ROM, plays
 his voice and sound effects, and lands his punches and kicks as hits by the Courier.
 
-**Status: early prototype.** It is developed and tested in Doc Mitchell's house and the Goodsprings
-exterior around it, on the GOG release running under Proton on Linux.
-
 ## Requirements
 
 - Fallout: New Vegas 1.4.0.525 (Steam or GOG) with [xNVSE](https://github.com/xNVSE/NVSE) (tested with 6.4.9).
@@ -39,7 +36,7 @@ The plugin is `build/sm64nv.dll`.
    Under Wine or Proton, give the ROM path as a Windows path, for example `Z:\home\you\roms\baserom.us.z64`.
    Optional keys:
    - `autotake=1` hands you Mario each time a save finishes loading or you arrive in a new cell. With
-     `autotake=0` (the default) you switch with M or D-pad down.
+     `autotake=0` (the default) you switch only with M or D-pad down.
    - `cell=GSDocMitchellHouse` jumps to that cell shortly after the main menu appears.
    - `scale` sets SM64 units per game unit (default 1.5).
    - `punch` sets the damage of one punch before the target's armour (default 20). A kick does 1.2 times
@@ -70,23 +67,6 @@ Punches, kicks, dives, long jumps and ground pounds land on the characters and c
 per blow. Each is a bare handed hit by the Courier that goes through the game's own hit handling, so where
 it lands, armour, crippled limbs, karma, experience and who turns hostile are the game's. A kick, a dive or a
 ground pound also knocks its target off its feet, the same target at most once every five seconds.
-
-Characters and creatures are solid to Mario. He cannot stand on them: landing on one slides him off.
-
-## Known limitations
-
-- Mario collides with the static world, the terrain and the actors around him. Physics clutter and water
-  are not part of it. Someone sitting or lying down is as solid as if they stood there.
-- Mario does not react to being hit and has no health of his own.
-- Of SM64's effects only the running dust, the ring of mist, the stars and the shards of a hit are drawn. The
-  water, snow, sand and fire ones are not.
-- Loading a save hands control back to the Courier. Mario takes over again with `autotake=1`, otherwise
-  press M. Doors and fast travel keep Mario: he stands on the other side as soon as it has loaded.
-- A jump started while pushing into something lower than Mario (the underside of a car, a table edge)
-  does not leave the ground. Let go of the stick, jump, then steer.
-- The door key only reaches doors in the cell Mario stands in. Other things cannot be activated.
-- Saving while Mario is active stores the Courier's own controls and camera, so the save also loads
-  without the plugin.
 
 ## Credits
 
