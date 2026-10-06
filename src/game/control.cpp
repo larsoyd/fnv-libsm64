@@ -16,8 +16,8 @@ namespace sm64nv {
 namespace {
 
 const uintptr_t kInputGlobals = 0x011F35CC;
-// the game's own copy of the xinput state, the gamepad report follows the packet number
-const uintptr_t kGamepadState = 0x011F35A8 + 4;
+// the game's import of the call that reads a pad
+const uintptr_t kPadImport = 0x00FDF394;
 const uintptr_t kOSGlobals = 0x011DEA0C;
 // the game's own setting for a player without collision, read by the player every frame
 // the console's toggle is for the whole game and stops anyone falling over while it is on
@@ -41,6 +41,8 @@ using ToggleFirstPerson = bool(__thiscall *)(void *, bool);
 using SetPos = void(__thiscall *)(void *, const Vec3 *);
 using SaveGame = void(__thiscall *)(void *, uint32_t);
 using SoundForm = void *(__cdecl *)();
+using PadRead = DWORD(WINAPI *)(DWORD, void *);
+using MenuMode = uint8_t(__cdecl *)();
 
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
 uintptr_t vslot(void *obj, size_t off) { return (*static_cast<uintptr_t **>(obj))[off / 4]; }
@@ -108,6 +110,22 @@ void __thiscall save_player(void *p, uint32_t changed) {
 
 int g_hushed;
 
+PadRead g_read_pad;
+// the first pad as it really is
+GamepadState g_pad;
+
+// a, x and the triggers are mario's, the game would act on them or click at them
+// in a menu the game gets the whole pad
+DWORD WINAPI read_pad_for_game(DWORD index, void *state) {
+    DWORD failed = g_read_pad(index, state);
+    if (failed || index) return failed;
+    // the report follows a packet number
+    auto *pad = reinterpret_cast<GamepadState *>(static_cast<uint8_t *>(state) + 4);
+    g_pad = *pad;
+    if (g_taken && !reinterpret_cast<MenuMode>(0x00702360)()) *pad = game_share(g_pad);
+    return failed;
+}
+
 // puts a call to ours over code that must read exactly as expected
 bool patch_call(uintptr_t at, std::span<const uint8_t> expect, void *to, std::string &why) {
     auto *site = reinterpret_cast<uint8_t *>(at);
@@ -129,7 +147,7 @@ bool patch_call(uintptr_t at, std::span<const uint8_t> expect, void *to, std::st
     return true;
 }
 
-// with movement off the game clicks at its activate key, which is the jump button on a pad
+// with movement off the game clicks at its activate key
 void *__cdecl nothing_sound() {
     if (!g_taken) return reinterpret_cast<SoundForm>(kNothingSound)();
     g_hushed++;
@@ -146,10 +164,9 @@ bool chase_setting_ok() {
 bool read_game_pad(Pad &pad, bool &toggle, bool &activate) {
     auto *g = *reinterpret_cast<uint8_t **>(kInputGlobals);
     if (!g || !(field<uint32_t>(g, 0x04) & kHasKeyboard)) return false;
-    const GamepadState &gamepad = *reinterpret_cast<const GamepadState *>(kGamepadState);
-    pad = merge_pads(read_pad(g + 0x18F8, g + 0x1B30), read_gamepad(gamepad));
-    toggle = toggle_held(g + 0x18F8, gamepad);
-    activate = activate_held(g + 0x18F8, gamepad);
+    pad = merge_pads(read_pad(g + 0x18F8, g + 0x1B30), read_gamepad(g_pad));
+    toggle = toggle_held(g + 0x18F8, g_pad);
+    activate = activate_held(g + 0x18F8, g_pad);
     return true;
 }
 
@@ -177,6 +194,20 @@ void grip(void *p) {
     *reinterpret_cast<float *>(kCameraZoom) = kZoom;
     // and the chase camera stops at 120 units which crops him
     field<float>(chase_setting(), 0x04) = kChase;
+}
+
+float look_stick() { return g_pad.rx / 32767.0f; }
+
+bool hook_pad(std::string &why) {
+    auto *slot = reinterpret_cast<PadRead *>(kPadImport);
+    DWORD old;
+    if (!*slot || !VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) {
+        why = "slot=" + hex(reinterpret_cast<uintptr_t>(*slot)) + " error=" + std::to_string(GetLastError());
+        return false;
+    }
+    g_read_pad = *slot, *slot = &read_pad_for_game;
+    VirtualProtect(slot, sizeof *slot, old, &old);
+    return true;
 }
 
 bool hook_activate_sound(std::string &why) {

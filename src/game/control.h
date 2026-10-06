@@ -16,6 +16,10 @@ struct ControlState {
 bool read_game_pad(Pad &pad, bool &toggle, bool &activate);
 // saves keep the courier's state, false when the slot is not the game's own
 bool hook_player_save(std::string &why);
+// how far the camera stick is pushed to the right, -1 to 1
+float look_stick();
+// while mario has the player the game is handed the pad without his buttons
+bool hook_pad(std::string &why);
 // stops the game clicking at an activate key it cannot act on while mario plays
 // false when the call it replaces is not the game's own
 bool hook_activate_sound(std::string &why);

@@ -39,6 +39,9 @@ static_assert(sizeof(GamepadState) == 12);
 // keys and mouse are the game's raw state arrays, high bit set means down
 Pad read_pad(const uint8_t *keys, const uint8_t *mouse);
 Pad read_gamepad(const GamepadState &g);
+// what the game still gets of the pad while mario plays: the camera stick, start, back, b
+// the rest is his, and the game would only click at buttons it may not act on
+GamepadState game_share(const GamepadState &g);
 // a stick out of its deadzone wins over the keys, buttons from either count
 Pad merge_pads(const Pad &keys, const Pad &pad);
 // m on the keyboard or dpad down on the gamepad, which the game leaves unbound

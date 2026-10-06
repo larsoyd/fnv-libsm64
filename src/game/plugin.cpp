@@ -319,6 +319,23 @@ const ScriptLine kParticlesScript[] = {
 const int kParticlesShots[] = {56, 90, 120};
 const ControlScript kParticles{kParticlesScript, {}, kParticlesShots, 135};
 const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
+// the saloon: who is there, a doorway with a bare strip, a coyote without bounds
+const ScriptLine kSaloonScript[] = {
+    {40, "actors 3000"}, {45, "player.SetAngle Z 0"}, {47, "mario -385 40 3456 0"}, {60, "spot south"},
+    {62, "HoldKey 17"}, {122, "ReleaseKey 17"}, {130, "spot north"},
+    {132, "player.PlaceAtMe 00168D08 1"}, {150, "actors 600"},
+};
+const ControlScript kSaloon{kSaloonScript, {}, {}, 160};
+// the camera stick in the house, then out by the door and the camera stick again at a run
+const ScriptLine kPadoutScript[] = {
+    {60, "pad lx=0 ly=0 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {70, PAD_IDLE},
+    {80, "mario 2380 1560 7360 90"}, {90, "HoldKey 18"}, {93, "ReleaseKey 18"},
+    {190, "pad lx=0 ly=32767 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {200, PAD_IDLE},
+    {215, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {218, PAD_IDLE},
+    {235, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=255 buttons=4000"}, {238, PAD_IDLE},
+};
+const Move kPadoutMoves[] = {{"in_before", 50, 55}, {"in_after", 72, 76}, {"out_before", 180, 185}, {"out_after", 202, 206}};
+const ControlScript kPadout{kPadoutScript, kPadoutMoves, {}, 260};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -391,6 +408,9 @@ struct Control {
     // frames spent with the player still mario's and no mario, 0 when he has one or is let go
     int carry = 0;
     Press toggle, activate;
+    // when the camera stick was pushed over and which way the player faced then
+    int look_from = 0;
+    float look_cam = 0;
     ControlState saved{};
     fnv::TESObjectCELL *cell = nullptr;
     uintptr_t place = 0;
@@ -927,10 +947,10 @@ void log_actors(float reach) {
     logf("control actors tick=%d near=%u seen=%d far=%d down=%d unsized=%d boxes=%u", g_ctl.tick, (unsigned)found.size(), st.seen,
          st.away, st.down, st.unsized, (unsigned)g_boxes.size());
     for (const LiveActor &a : found)
-        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d", a.body.id,
+        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d sized=%s", a.body.id,
              a.ref->baseForm->refID, a.ref->baseForm->typeID, xyz(a.body.feet).c_str(), a.body.heading * 180 / 3.14159265f,
              a.body.half_width, a.body.half_length, a.body.height,
-             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref));
+             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized);
 }
 
 // a console line run on the actor nearest mario
@@ -963,6 +983,16 @@ void use_door() {
     if (!d.teleports) g_sim.swing_until = g_sim.ticks + kDoorSwingTicks;
 }
 
+// each push of the camera stick with how far the view turned
+void watch_look(int t, float cam) {
+    bool pushed = std::fabs(look_stick()) > 0.5f;
+    if (pushed && !g_ctl.look_from) g_ctl.look_from = t, g_ctl.look_cam = cam;
+    if (pushed || !g_ctl.look_from) return;
+    logf("control look tick=%d ticks=%d turned=%.3f taken=%d blocked=%d", t, t - g_ctl.look_from,
+         std::remainder(cam - g_ctl.look_cam, 6.2831853f), taken(), g_ctl.blocked);
+    g_ctl.look_from = 0;
+}
+
 void control_tick() {
     const ControlScript &s = *g_ctl.script;
     float cam = fnv::player()->rot[2];
@@ -976,6 +1006,7 @@ void control_tick() {
         keep_fit(t);
         if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t), log_trail();
     }
+    watch_look(t, cam);
     if (t == g_ctl.restore_check) check_restored();
     Vec3 m = taken() ? mario_pos() : player_pos();
     if (taken() && g_sim.state.action != g_ctl.action) {
@@ -1196,6 +1227,8 @@ void on_frame() {
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
+    else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
+    else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
     else if (g_config.scenario == "particles" || g_config.scenario == "noparticles") tick_control_scenario(kParticles);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
@@ -1237,7 +1270,8 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvs
     g_handle = nvse->getPluginHandle();
     std::string why;
     if (!hook_player_save(why)) return logf("refused: save hook %s", why.c_str()), false;
-    // without it mario still plays, the game just clicks at his jumps
+    if (!hook_pad(why)) return logf("refused: pad hook %s", why.c_str()), false;
+    // without it mario still plays, the game just clicks at the activate key
     if (!hook_activate_sound(why)) logf("refused: activate sound hook %s", why.c_str());
     g_console = static_cast<const nvse::ConsoleInterface *>(nvse->queryInterface(nvse::kInterfaceConsole));
     auto *msg = static_cast<const nvse::MessagingInterface *>(nvse->queryInterface(nvse::kInterfaceMessaging));

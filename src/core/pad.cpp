@@ -47,4 +47,9 @@ bool Press::edge(bool now) {
     return fired;
 }
 
+GamepadState game_share(const GamepadState &g) {
+    const uint16_t kStart = 0x0010, kBack = 0x0020, kB = 0x2000;
+    return {uint16_t(g.buttons & (kStart | kBack | kB)), 0, 0, 0, 0, g.rx, g.ry};
+}
+
 }
