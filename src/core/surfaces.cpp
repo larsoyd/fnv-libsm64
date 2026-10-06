@@ -1,14 +1,63 @@
 #include "surfaces.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iterator>
+#include <map>
 
 namespace sm64nv {
 
 static const uint16_t kTerrainStone = 1;
 // past about 78 degrees a face is meant as a wall but sm64 wants it within 0.01
 static const float kNearlyUpright = 0.2f;
+static const int16_t kNotSlippery = 0x15;
+// sm64 slides him off floors past 38 degrees, a little more here to allow for rounding
+static const float kSlideUp = 0.8f;
+// what he steps up without a jump, and how far along a slope its rise is measured
+static const float kStepRise = 78, kStepNear = 150;
+
+namespace {
+
+struct Steep {
+    uint32_t surface;
+    float x, z;
+    int32_t lo, hi;
+};
+
+// a kerb or a tilted slab is steep but short, walking over it should not start a slide
+void mark_steps(std::vector<SM64Surface> &all, SurfaceStats &stats) {
+    std::vector<Steep> steep;
+    std::map<std::array<int32_t, 3>, std::vector<uint32_t>> at;
+    for (uint32_t i = 0; i < all.size(); i++) {
+        float up = std::fabs(surface_normal(all[i]).y);
+        if (up <= 0.01f || up > kSlideUp) continue;
+        const auto &v = all[i].vertices;
+        for (const auto &c : v) at[{c[0], c[1], c[2]}].push_back((uint32_t)steep.size());
+        steep.push_back({i, (v[0][0] + v[1][0] + v[2][0]) / 3.0f, (v[0][2] + v[1][2] + v[2][2]) / 3.0f,
+                         std::min({v[0][1], v[1][1], v[2][1]}), std::max({v[0][1], v[1][1], v[2][1]})});
+    }
+    std::vector<uint32_t> seen(steep.size(), UINT32_MAX), open;
+    for (uint32_t i = 0; i < steep.size(); i++) {
+        // the steep faces joined to this one corner to corner, as far as they stay near it
+        int32_t lo = steep[i].lo, hi = steep[i].hi;
+        open.assign(1, i), seen[i] = i;
+        while (!open.empty() && hi - lo <= kStepRise) {
+            uint32_t k = open.back();
+            open.pop_back();
+            lo = std::min(lo, steep[k].lo), hi = std::max(hi, steep[k].hi);
+            for (const auto &c : all[steep[k].surface].vertices)
+                for (uint32_t n : at[{c[0], c[1], c[2]}]) {
+                    if (seen[n] == i || std::hypot(steep[n].x - steep[i].x, steep[n].z - steep[i].z) > kStepNear) continue;
+                    seen[n] = i, open.push_back(n);
+                }
+        }
+        if (hi - lo > kStepRise) continue;
+        all[steep[i].surface].type = kNotSlippery, stats.steps++;
+    }
+}
+
+}
 
 bool reaches(const Tri &t, Vec3 lo, Vec3 hi) {
     // by its bounds, a floor can span the whole box with no corner in it
@@ -46,6 +95,7 @@ std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &
         out.push_back(s);
         if (kept) kept->push_back(uint32_t(&t - tris.data()));
     }
+    mark_steps(out, stats);
     return out;
 }
 

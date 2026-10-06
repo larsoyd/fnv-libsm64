@@ -14,7 +14,7 @@ struct Tri {
 };
 
 struct SurfaceStats {
-    uint32_t floors = 0, walls = 0, ceilings = 0, degenerate = 0, stood_up = 0, still_steep = 0;
+    uint32_t floors = 0, walls = 0, ceilings = 0, degenerate = 0, stood_up = 0, still_steep = 0, steps = 0;
 };
 
 // whether the triangle comes into the box from lo to hi
