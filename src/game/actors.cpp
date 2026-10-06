@@ -29,6 +29,13 @@ template <typename F> F virt(void *obj, size_t off) { return reinterpret_cast<F>
 const uint32_t kAlive = 0, kRestrained = 5;
 // game units, a bound outside this is not a body
 const float kLeastSize = 4, kMostSize = 2000;
+// half of all records carry no bounds, a person is then as wide, deep and tall as the others
+const float kPerson[3] = {46, 34, 132};
+const uintptr_t kVtblController = 0x010C49C4;
+// havok units to game units
+const float kHavokToGame = 1 / 0.142875f;
+
+using GetController = void *(__thiscall *)(void *);
 
 template <typename T> T at(const void *base, size_t off) {
     return *reinterpret_cast<const T *>(static_cast<const uint8_t *>(base) + off);
@@ -44,14 +51,35 @@ bool standing(const fnv::TESObjectREFR *ref) {
     return life == kAlive || life == kRestrained;
 }
 
+bool usable(const float size[3]) {
+    return std::all_of(size, size + 3, [](float s) { return s >= kLeastSize && s <= kMostSize; });
+}
+
+// the capsule physics moves a creature with, as wide as it is deep
+bool body_size(fnv::TESObjectREFR *ref, float size[3]) {
+    void *process = at<void *>(ref, 0x68);
+    if (fnv::vtbl_of(process) != kVtblHighProcess) return false;
+    void *c = virt<GetController>(process, 0x28C)(process);
+    if (fnv::vtbl_of(c) != kVtblController) return false;
+    size[0] = size[1] = 2 * at<float>(c, 0x5F8) * kHavokToGame, size[2] = at<float>(c, 0x564) * kHavokToGame;
+    return true;
+}
+
 // the base form's bounds are six shorts, low corner then high corner
-bool sized(const fnv::TESObjectREFR *ref, ActorBody &b) {
+const char *sized(fnv::TESObjectREFR *ref, ActorBody &b) {
     auto *lo = reinterpret_cast<const int16_t *>(reinterpret_cast<const uint8_t *>(ref->baseForm) + 0x24), *hi = lo + 3;
     float size[3] = {(hi[0] - lo[0]) * ref->scale, (hi[1] - lo[1]) * ref->scale, hi[2] * ref->scale};
-    for (float s : size)
-        if (!(s >= kLeastSize && s <= kMostSize)) return false;
+    const char *from = "bounds";
+    if (!usable(size) && fnv::vtbl_of(ref) == kVtblCharacter) {
+        from = "person";
+        for (int i = 0; i < 3; i++) size[i] = kPerson[i] * ref->scale;
+    } else if (!usable(size)) {
+        from = "body";
+        if (!body_size(ref, size)) return nullptr;
+    }
+    if (!usable(size)) return nullptr;
     b.half_width = size[0] / 2, b.half_length = size[1] / 2, b.height = size[2];
-    return true;
+    return from;
 }
 
 float apart(const LiveActor &a, Vec3 c) { return std::hypot(a.body.feet.x - c.x, a.body.feet.y - c.y, a.body.feet.z - c.z); }
@@ -103,10 +131,10 @@ std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 c, float rea
             fnv::TESObjectREFR *ref = it->data;
             if (!is_actor(ref)) continue;
             stats.seen++;
-            LiveActor a{ref, {ref->form.refID, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], 0, 0, 0}};
+            LiveActor a{ref, {ref->form.refID, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], 0, 0, 0}, nullptr};
             if (apart(a, c) > reach) stats.away++;
             else if (!standing(ref)) stats.down++;
-            else if (!sized(ref, a.body)) stats.unsized++;
+            else if (!(a.sized = sized(ref, a.body))) stats.unsized++;
             else out.push_back(a);
         }
     std::ranges::sort(out, {}, [&](const LiveActor &a) { return apart(a, c); });

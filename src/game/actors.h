@@ -9,6 +9,8 @@ namespace sm64nv {
 struct LiveActor {
     fnv::TESObjectREFR *ref;
     ActorBody body;
+    // where its size came from: its record, the size people are, or its body in physics
+    const char *sized;
 };
 
 struct ActorStats {
