@@ -16,6 +16,7 @@ enum : uint8_t {
     kKeyRShift = 0x36,
     kKeyLCtrl = 0x1D,
     kKeyRCtrl = 0x9D,
+    kKeyM = 0x32,
 };
 
 struct Pad {
@@ -26,5 +27,11 @@ struct Pad {
 
 // keys and mouse are the game's raw state arrays, high bit set means down
 Pad read_pad(const uint8_t *keys, const uint8_t *mouse);
+bool toggle_held(const uint8_t *keys);
+
+struct Press {
+    bool held = false;
+    bool edge(bool down);
+};
 
 }

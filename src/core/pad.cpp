@@ -16,4 +16,12 @@ Pad read_pad(const uint8_t *keys, const uint8_t *mouse) {
     return {right, forward, b};
 }
 
+bool toggle_held(const uint8_t *keys) { return down(keys, kKeyM); }
+
+bool Press::edge(bool now) {
+    bool fired = now && !held;
+    held = now;
+    return fired;
+}
+
 }
