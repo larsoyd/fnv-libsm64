@@ -30,9 +30,11 @@ int take_hushed();
 // turns off the game's own movement and goes third person with the body hidden
 bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before
-void release_player(const ControlState &saved);
-// a door gives the player his controls and view back, true when they were taken again
-bool hold_player();
+// looking the game switched off meanwhile goes off again, and saved is told so
+void release_player(ControlState &saved);
+// a door gives the player his controls and view back, a scene may switch looking off
+// what the control flags were when something had to be put right, -1 when nothing had
+int hold_player();
 void move_player(Vec3 pos);
 // the node the courier's body hangs under, a room indoors where there are rooms
 void *body_parent();

@@ -35,6 +35,8 @@ const uintptr_t kPlayerSave = 0x009590F0;
 const uintptr_t kNothingSoundCall = 0x009433B7, kNothingSound = 0x0082EC10;
 const uint32_t kHasKeyboard = 1 << 2;
 const uint8_t kBlockedControls = 0x01 | 0x08 | 0x10 | 0x40;
+// mario needs the camera whatever the game's scenes want
+const uint8_t kLooking = 0x02;
 
 using SetControls = void(__thiscall *)(void *, bool, uint8_t);
 using ToggleFirstPerson = bool(__thiscall *)(void *, bool);
@@ -92,13 +94,15 @@ void show_body() {
 // the courier's own state while mario has the player
 ControlState g_courier;
 bool g_taken;
+// the game switched looking off while mario had the player and gets that back on release
+bool g_looking_off;
 
 // the save writes the control flags, pov and zoom so it gets the courier's
 void __thiscall save_player(void *p, uint32_t changed) {
     uint8_t controls = field<uint8_t>(p, 0x680), third = field<uint8_t>(p, 0x64A);
     float zoom = *reinterpret_cast<float *>(kCameraZoom);
     if (g_taken) {
-        field<uint8_t>(p, 0x680) = controls & ~(kBlockedControls & ~g_courier.controls);
+        field<uint8_t>(p, 0x680) = (controls & ~(kBlockedControls & ~g_courier.controls)) | (g_looking_off ? kLooking : 0);
         field<uint8_t>(p, 0x64A) = g_courier.third;
         *reinterpret_cast<float *>(kCameraZoom) = g_courier.zoom;
     }
@@ -245,9 +249,11 @@ bool take_player(const ControlState &courier, std::string &why) {
     return false;
 }
 
-void release_player(const ControlState &saved) {
+void release_player(ControlState &saved) {
     void *p = fnv::player();
     g_taken = false;
+    if (g_looking_off) saved.controls |= kLooking, reinterpret_cast<SetControls>(0x0095F530)(p, true, kLooking);
+    g_looking_off = false;
     reinterpret_cast<SetControls>(0x0095F530)(p, false, kBlockedControls & ~saved.controls);
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, !saved.third);
     *reinterpret_cast<float *>(kCameraZoom) = saved.zoom;
@@ -258,11 +264,14 @@ void release_player(const ControlState &saved) {
     show_body();
 }
 
-bool hold_player() {
+int hold_player() {
     void *p = fnv::player();
-    if ((field<uint8_t>(p, 0x680) & kBlockedControls) == kBlockedControls && field<uint8_t>(p, 0x64A)) return false;
-    grip(p);
-    return true;
+    uint8_t had = field<uint8_t>(p, 0x680);
+    bool loose = (had & kBlockedControls) != kBlockedControls || !field<uint8_t>(p, 0x64A);
+    if (!loose && !(had & kLooking)) return -1;
+    if (had & kLooking) reinterpret_cast<SetControls>(0x0095F530)(p, false, kLooking), g_looking_off = true;
+    if (loose) grip(p);
+    return had;
 }
 
 void *body_parent() { return body() ? field<void *>(body(), 0x18) : nullptr; }

@@ -326,16 +326,25 @@ const ScriptLine kSaloonScript[] = {
     {132, "player.PlaceAtMe 00168D08 1"}, {150, "actors 600"},
 };
 const ControlScript kSaloon{kSaloonScript, {}, {}, 160};
-// the camera stick in the house, then out by the door and the camera stick again at a run
+// the camera stick in the house and again outside after the game has switched looking off
 const ScriptLine kPadoutScript[] = {
     {60, "pad lx=0 ly=0 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {70, PAD_IDLE},
     {80, "mario 2380 1560 7360 90"}, {90, "HoldKey 18"}, {93, "ReleaseKey 18"},
+    {150, "DisablePlayerControls 0 0 0 0 1 0 0"},
     {190, "pad lx=0 ly=32767 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {200, PAD_IDLE},
     {215, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {218, PAD_IDLE},
     {235, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=255 buttons=4000"}, {238, PAD_IDLE},
+    {245, PAD_DPAD_DOWN}, {248, PAD_IDLE}, {262, "state"},
 };
 const Move kPadoutMoves[] = {{"in_before", 50, 55}, {"in_after", 72, 76}, {"out_before", 180, 185}, {"out_after", 202, 206}};
-const ControlScript kPadout{kPadoutScript, kPadoutMoves, {}, 260};
+const ControlScript kPadout{kPadoutScript, kPadoutMoves, {}, 270};
+// at a prison yard, a run at a wall pillar whose collision is on a layer of no name
+const ScriptLine kPrisonScript[] = {
+    {45, "cow WastelandNV -8 -8"},
+    {200, "player.SetAngle Z 135.8"}, {202, "mario -31880 -29940 6000 135.8"}, {240, "spot before"},
+    {242, "HoldKey 17"}, {282, "ReleaseKey 17"}, {292, "spot pillar"},
+};
+const ControlScript kPrison{kPrisonScript, {}, {}, 300};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -1162,7 +1171,7 @@ void control_frame() {
     if (int n = take_hushed()) logf("control hush tick=%d count=%d", g_ctl.tick, n);
     bool blocked = menu_mode();
     // in a menu the view is the game's to change
-    if (held() && !blocked && hold_player()) logf("control regrip tick=%d", g_ctl.tick);
+    if (int had = held() && !blocked ? hold_player() : -1; had >= 0) logf("control regrip tick=%d had=%02X", g_ctl.tick, had);
     if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_ctl.tick, blocked, menu_mode());
     g_ctl.blocked = blocked;
     if (g_ctl.toggle.edge(toggle) && !blocked) held() ? release_control("key") : take_control();
@@ -1230,6 +1239,7 @@ void on_frame() {
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
+    else if (g_config.scenario == "prison") tick_control_scenario(kPrison);
     else if (g_config.scenario == "particles" || g_config.scenario == "noparticles") tick_control_scenario(kParticles);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
