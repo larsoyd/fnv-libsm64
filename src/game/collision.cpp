@@ -24,9 +24,9 @@ const int kLandPoints = 17;
 const uint32_t kMaxGrid = 11;
 // a cell in this state has all its references attached
 const uint8_t kCellAttached = 6;
-// static, anim static, transparent, trees, props, terrain and ground
-// then small transparent, which is chain link fence, and its animated kind for the gates
-const uint32_t kSolidLayers = 1u << 1 | 1u << 2 | 1u << 3 | 1u << 9 | 1u << 10 | 1u << 13 | 1u << 17 | 1u << 26 | 1u << 28;
+// the layer with no name (wall pillars, window pieces), static, anim static, transparent
+// trees, props, terrain, ground, then chain link fence and its animated kind for the gates
+const uint32_t kSolidLayers = 1u << 0 | 1u << 1 | 1u << 2 | 1u << 3 | 1u << 9 | 1u << 10 | 1u << 13 | 1u << 17 | 1u << 26 | 1u << 28;
 
 template <typename T> T at(const void *base, size_t off) {
     return *reinterpret_cast<const T *>(static_cast<const uint8_t *>(base) + off);
