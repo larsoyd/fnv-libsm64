@@ -1,3 +1,4 @@
+#include "core/audio.h"
 #include "core/config.h"
 #include "core/dds.h"
 #include "core/frame.h"
@@ -12,6 +13,7 @@
 #include "game/log.h"
 #include "game/nvse.h"
 #include "game/render.h"
+#include "game/sound.h"
 
 #include <cmath>
 #include <cstdio>
@@ -210,6 +212,7 @@ void on_post_load() {
     logf("rom ok sha256=%s", rc.sha256.c_str());
     sm64_register_debug_print_function(libsm64_print);
     sm64_global_init(g_rom.data(), g_texture.data());
+    sm64_audio_init(g_rom.data());
     for (const char *dir : kTextureDirs) CreateDirectoryA((g_dir + dir).c_str(), nullptr);
     std::string path = g_dir + kTextureDirs[1] + "\\mario.dds";
     std::vector<uint8_t> dds = atlas_dds(g_texture.data());
@@ -414,6 +417,8 @@ void take_control() {
     std::string why;
     if (!take_player(why)) return finish(false, ("take " + why).c_str());
     focus_game();
+    if (!sound_ready() && sound_open(why)) logf("sound open rate=%d", kAudioRate);
+    else if (!sound_ready()) logf("sound unavailable reason=%s", why.c_str());
     if (!control_state().noclip) run_console("tcl");
     // the camera aims at courier eye height so tilt it down onto mario
     run_console("player.SetAngle X 20");
@@ -438,6 +443,23 @@ void check_restored() {
     std::string now = describe(control_state());
     logf("control restored tick=%d %s shape_hidden=%d", g_ctl.tick, now.c_str(), mario_mesh_hidden());
     if (now != describe(g_ctl.saved)) finish(false, ("restore readback want " + describe(g_ctl.saved)).c_str());
+}
+
+// wall clock so a recording of the stream can be lined up with the windows
+uint64_t unix_ms() {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    return ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) / 10000 - 11644473600000ull;
+}
+
+uint64_t g_sound_from;
+
+void log_sound(const char *name) {
+    SoundStats st = sound_take_stats();
+    uint64_t now = unix_ms();
+    logf("control sound name=%s peak=%d written=%u done=%u start_ms=%llu end_ms=%llu", name, st.peak, st.written, st.done,
+         (unsigned long long)g_sound_from, (unsigned long long)now);
+    g_sound_from = now;
 }
 
 void control_tick() {
@@ -465,6 +487,10 @@ void control_tick() {
     if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
     if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
     if (t == s.jump_to) logf("control jump rise=%.1f", g_ctl.jump_peak - g_ctl.jump_floor);
+    // standing still makes no sound, the jump says wahoo
+    if (t == s.jump_from - 15) sound_take_stats(), g_sound_from = unix_ms();
+    if (t == s.jump_from) log_sound("quiet");
+    if (t == s.jump_to) log_sound("jump");
     for (const ScriptLine &line : s.lines) {
         if (t != line.tick) continue;
         ControlState cs = control_state();
@@ -525,6 +551,7 @@ void control_frame() {
     if (g_ctl.toggle.edge(toggle) && !blocked) taken() ? release_control("key") : take_control();
     if (g_done) return;
     run_ticks(control_tick);
+    if (taken() && !blocked && sound_ready()) sound_pump();
     if (taken() && loaded_cell() != g_ctl.cell) release_control("cell");
     if (!taken() || g_done) return;
     Vec3 drawn = draw_mario();
