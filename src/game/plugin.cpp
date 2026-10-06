@@ -1,3 +1,4 @@
+#include "core/arrival.h"
 #include "core/audio.h"
 #include "core/config.h"
 #include "core/dds.h"
@@ -117,6 +118,14 @@ const Move kLeaveMoves[] = {{"mario", 40, 55}, {"courier", 200, 210}, {"again", 
 const int kLeaveShots[] = {215, 272};
 const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
 
+// let go in the house, sent to the saloon, then a save made with mario in control is loaded
+const ScriptLine kAutotakeScript[] = {
+    {60, "HoldKey 50"}, {63, "ReleaseKey 50"}, {75, "coc GSProspectorSaloonInterior"}, {160, "SaveGame sm64nvauto"},
+    {175, "LoadGame sm64nvauto"}, {280, "player.SetAngle Z 270"}, {285, "HoldKey 17"}, {310, "ReleaseKey 17"},
+};
+const Move kAutotakeMoves[] = {{"loaded", 285, 310}};
+const ControlScript kAutotake{kAutotakeScript, kAutotakeMoves, {}, 325};
+
 #define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
 #define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
 const ScriptLine kGamepadScript[] = {
@@ -223,13 +232,14 @@ struct Control {
     float jump_floor = 0, jump_peak = 0, max_gap = 0;
     int frames = 0, tick = 0, restore_check = 0;
     uint32_t action = 0;
-    bool placed = false, blocked = false;
+    bool started = false, placed = false, blocked = false;
     Press toggle;
     ControlState saved{};
     fnv::TESObjectCELL *cell = nullptr;
     const ControlScript *script = nullptr;
 };
 Control g_ctl;
+ArrivalWatch g_arrival(kSettleFrames);
 
 double g_frame_dt;
 
@@ -305,7 +315,7 @@ int count_refs(const fnv::TESObjectCELL *c) {
 }
 
 fnv::TESObjectCELL *settle_cell() {
-    if (g_frames == kMenuFrames) run_console("coc " + g_config.cell);
+    if (g_frames == kMenuFrames && !g_config.cell.empty()) run_console("coc " + g_config.cell);
     if (g_frames <= kMenuFrames) return nullptr;
     fnv::TESObjectCELL *c = loaded_cell();
     g_settled = c ? g_settled + 1 : 0;
@@ -489,7 +499,7 @@ void take_control() {
     logf("control saved tick=%d %s", g_ctl.tick, describe(g_ctl.saved).c_str());
     g_ctl.restore_check = 0;
     std::string why;
-    if (!take_player(why)) return finish(false, ("take " + why).c_str());
+    if (!take_player(g_ctl.saved, why)) return finish(false, ("take " + why).c_str());
     focus_game();
     if (!sound_ready() && sound_open(why)) logf("sound open rate=%d", kAudioRate);
     else if (!sound_ready()) logf("sound unavailable reason=%s", why.c_str());
@@ -510,7 +520,8 @@ void release_control(const char *reason) {
     release_player(g_ctl.saved);
     if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl");
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
-    g_ctl.restore_check = g_ctl.tick + kRestoreTicks;
+    // a save load replaces what was put back so there is nothing to read back
+    g_ctl.restore_check = strcmp(reason, "load") ? g_ctl.tick + kRestoreTicks : 0;
 }
 
 void check_restored() {
@@ -679,6 +690,10 @@ void control_frame() {
     run_ticks(control_tick);
     if (taken() && !blocked && sound_ready()) sound_pump();
     if (taken() && loaded_cell() != g_ctl.cell) release_control("cell");
+    if (g_config.autotake && g_arrival.frame(reinterpret_cast<uintptr_t>(loaded_cell()), blocked, taken())) {
+        logf("control arrive tick=%d id=%08X", g_ctl.tick, loaded_cell()->form.refID);
+        take_control();
+    }
     if (!taken() || g_done) return;
     if (hide_body()) logf("control rehide tick=%d", g_ctl.tick);
     Vec3 drawn = draw_mario();
@@ -688,11 +703,15 @@ void control_frame() {
     g_ctl.placed = true;
 }
 
+// scenarios take the player themselves once the cell settles unless arrivals do it
+bool own_take() { return !g_config.scenario.empty() && !g_config.autotake; }
+
 void tick_control_scenario(const ControlScript &script) {
     g_ctl.script = &script;
-    if (g_ctl.cell) return control_frame();
-    g_ctl.cell = settle_cell();
-    if (g_ctl.cell) take_control();
+    if (g_ctl.started) return control_frame();
+    fnv::TESObjectCELL *c = settle_cell();
+    g_ctl.started = own_take() ? c != nullptr : loaded_cell() != nullptr;
+    if (g_ctl.started && own_take()) take_control();
 }
 
 void on_frame() {
@@ -707,6 +726,7 @@ void on_frame() {
     else if (g_config.scenario == "release") tick_control_scenario(kRelease);
     else if (g_config.scenario == "leave") tick_control_scenario(kLeave);
     else if (g_config.scenario == "play") tick_control_scenario(kPlay);
+    else if (g_config.scenario == "autotake") tick_control_scenario(kAutotake);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
@@ -714,14 +734,23 @@ void on_frame() {
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
+    else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
-    bool endless = g_config.scenario == "play" && g_ctl.cell;
+    bool endless = g_config.scenario == "play" && g_ctl.started;
     if (!g_done && !g_config.scenario.empty() && !endless && g_frames >= kScenarioTimeout) finish(false, "timeout");
+}
+
+void on_load_game(bool ok) {
+    logf("control load tick=%d ok=%d", g_ctl.tick, ok);
+    g_arrival.loaded_game();
 }
 
 void on_message(nvse::Message *m) {
     if (m->type == nvse::kMessagePostLoad) on_post_load();
     else if (m->type == nvse::kMessageMainGameLoop) on_frame();
+    else if (m->type == nvse::kMessagePreLoadGame && taken()) release_control("load");
+    // the load result travels as the pointer value itself
+    else if (m->type == nvse::kMessagePostLoadGame && g_ready) on_load_game(m->data != nullptr);
 }
 
 }
@@ -743,6 +772,8 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Query(const nvse::Interface *nv
 extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvse) {
     logf("loaded version=%s nvse=%08X", kVersion, nvse->nvseVersion);
     g_handle = nvse->getPluginHandle();
+    std::string why;
+    if (!hook_player_save(why)) return logf("refused: save hook %s", why.c_str()), false;
     g_console = static_cast<const nvse::ConsoleInterface *>(nvse->queryInterface(nvse::kInterfaceConsole));
     auto *msg = static_cast<const nvse::MessagingInterface *>(nvse->queryInterface(nvse::kInterfaceMessaging));
     if (!msg || !msg->registerListener(g_handle, "NVSE", on_message)) {

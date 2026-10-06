@@ -51,6 +51,7 @@ enum : uint32_t {
 
 enum : uint32_t {
     kMessagePostLoad = 0,
+    kMessagePreLoadGame = 6,
     kMessagePostLoadGame = 8,
     kMessageDeferredInit = 18,
     kMessageMainGameLoop = 20,

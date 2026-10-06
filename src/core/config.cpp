@@ -18,6 +18,12 @@ static bool parse_float(const std::string &v, float &out) {
     return true;
 }
 
+static bool parse_flag(const std::string &v, bool &out) {
+    if (v != "0" && v != "1") return false;
+    out = v == "1";
+    return true;
+}
+
 static bool parse_count(const std::string &v, int &out) {
     char *end = nullptr;
     long n = std::strtol(v.c_str(), &end, 10);
@@ -46,6 +52,7 @@ Config parse_config(const std::string &text) {
         else if (key == "scenario") c.scenario = value;
         else if (key == "cell") c.cell = value;
         else if (key == "frames") ok = parse_count(value, c.frames);
+        else if (key == "autotake") ok = parse_flag(value, c.autotake);
         else {
             c.errors.push_back("unknown key=" + key + " line=" + std::to_string(line));
             continue;

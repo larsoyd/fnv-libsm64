@@ -1,5 +1,6 @@
 #include "game/control.h"
 #include "game/fnv.h"
+#include "game/log.h"
 #include "game/rtti.h"
 
 #include <cstdio>
@@ -22,12 +23,15 @@ const uintptr_t kChaseSetting = 0x011CD568;
 const uintptr_t kVtblSetting = 0x01012114;
 const float kChase = 250;
 const uintptr_t kPlayerSetPos = 0x00931620;
+const uintptr_t kPlayerSaveSlot = 0x0108AA90;
+const uintptr_t kPlayerSave = 0x009590F0;
 const uint32_t kHasKeyboard = 1 << 2;
 const uint8_t kBlockedControls = 0x01 | 0x08 | 0x10 | 0x40;
 
 using SetControls = void(__thiscall *)(void *, bool, uint8_t);
 using ToggleFirstPerson = bool(__thiscall *)(void *, bool);
 using SetPos = void(__thiscall *)(void *, const Vec3 *);
+using SaveGame = void(__thiscall *)(void *, uint32_t);
 
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
 uintptr_t vslot(void *obj, size_t off) { return (*static_cast<uintptr_t **>(obj))[off / 4]; }
@@ -50,6 +54,25 @@ void *body() { return fnv::player()->renderState ? fnv::player()->renderState->n
 
 void *chase_setting() { return reinterpret_cast<void *>(kChaseSetting); }
 
+// the courier's own state while mario has the player
+ControlState g_courier;
+bool g_taken;
+
+// the save writes the control flags, pov and zoom so it gets the courier's
+void __thiscall save_player(void *p, uint32_t changed) {
+    uint8_t controls = field<uint8_t>(p, 0x680), third = field<uint8_t>(p, 0x64A);
+    float zoom = *reinterpret_cast<float *>(kCameraZoom);
+    if (g_taken) {
+        field<uint8_t>(p, 0x680) = controls & ~(kBlockedControls & ~g_courier.controls);
+        field<uint8_t>(p, 0x64A) = g_courier.third;
+        *reinterpret_cast<float *>(kCameraZoom) = g_courier.zoom;
+    }
+    logf("save player taken=%d controls=%02X written=%02X", g_taken, controls, field<uint8_t>(p, 0x680));
+    reinterpret_cast<SaveGame>(kPlayerSave)(p, changed);
+    field<uint8_t>(p, 0x680) = controls, field<uint8_t>(p, 0x64A) = third;
+    *reinterpret_cast<float *>(kCameraZoom) = zoom;
+}
+
 bool chase_setting_ok() {
     const char *name = field<const char *>(chase_setting(), 0x08);
     return fnv::vtbl_of(chase_setting()) == kVtblSetting && name && !strcmp(name, "fChaseCameraMax");
@@ -66,7 +89,23 @@ bool read_game_pad(Pad &pad, bool &toggle) {
     return true;
 }
 
-bool take_player(std::string &why) {
+bool hook_player_save(std::string &why) {
+    auto *slot = reinterpret_cast<uintptr_t *>(kPlayerSaveSlot);
+    if (*slot != kPlayerSave) {
+        why = "slot=" + hex(*slot) + " want=" + hex(kPlayerSave);
+        return false;
+    }
+    DWORD old;
+    if (!VirtualProtect(slot, 4, PAGE_READWRITE, &old)) {
+        why = "protect error=" + std::to_string(GetLastError());
+        return false;
+    }
+    *slot = reinterpret_cast<uintptr_t>(&save_player);
+    VirtualProtect(slot, 4, old, &old);
+    return true;
+}
+
+bool take_player(const ControlState &courier, std::string &why) {
     fnv::TESObjectREFR *p = fnv::player();
     if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) why = "player vtbl";
     else if (vslot(p, 0x2A8) != kPlayerSetPos) why = "player setpos slot";
@@ -80,6 +119,7 @@ bool take_player(std::string &why) {
     // and the chase camera stops at 120 units which crops him
     field<float>(chase_setting(), 0x04) = kChase;
     hide_body();
+    g_courier = courier, g_taken = true;
     ControlState cs = control_state();
     if ((cs.controls & kBlockedControls) == kBlockedControls && cs.hidden) return true;
     why = "readback controls=" + hex(cs.controls) + " hidden=" + std::to_string(cs.hidden);
@@ -88,6 +128,7 @@ bool take_player(std::string &why) {
 
 void release_player(const ControlState &saved) {
     void *p = fnv::player();
+    g_taken = false;
     reinterpret_cast<SetControls>(0x0095F530)(p, false, kBlockedControls & ~saved.controls);
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, !saved.third);
     *reinterpret_cast<float *>(kCameraZoom) = saved.zoom;

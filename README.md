@@ -32,13 +32,16 @@ The plugin is `build/sm64nv.dll`.
 
    ```ini
    rom=C:\path\to\baserom.us.z64
-   scenario=play
-   cell=GSDocMitchellHouse
+   autotake=1
    ```
 
    Under Wine or Proton, give the ROM path as a Windows path, for example `Z:\home\you\roms\baserom.us.z64`.
-   The optional `scale` key sets SM64 units per game unit (default 1.5).
-3. Start the game. Shortly after the main menu appears, the plugin loads the cell and hands you Mario.
+   Optional keys:
+   - `autotake=1` hands you Mario each time a save finishes loading or you arrive in a new cell. With
+     `autotake=0` (the default) you switch with M or D-pad down.
+   - `cell=GSDocMitchellHouse` jumps to that cell shortly after the main menu appears.
+   - `scale` sets SM64 units per game unit (default 1.5).
+3. Start the game and load a save.
 
 The plugin writes its log to `sm64nv.log` in the game folder. Any problem it finds is a line starting
 with `refused:`.
@@ -58,10 +61,11 @@ Mario ignores input while a menu, the Pip-Boy or the console is open.
 
 ## Known limitations
 
-- Only the cell where you take control has collision. Changing cells hands control back to the Courier,
-  and M takes Mario again in the new cell.
+- Only the cell where Mario takes over has collision. Changing cells hands control back to the Courier,
+  and Mario takes over again in the new cell (with `autotake=1`, otherwise press M).
 - No exterior terrain, water, doors or combat while Mario is active.
-- Loading a save does not give you Mario. Play mode starts from the main menu.
+- Saving while Mario is active stores the Courier's own controls and camera, so the save also loads
+  without the plugin.
 
 ## Credits
 

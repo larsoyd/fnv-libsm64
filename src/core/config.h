@@ -12,6 +12,7 @@ struct Config {
     std::string scenario;
     std::string cell;
     int frames = 0;
+    bool autotake = false;
     std::vector<std::string> errors;
 };
 
