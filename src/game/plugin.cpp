@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <span>
 #include <string>
 #include <windows.h>
 
@@ -42,7 +43,7 @@ struct ScriptLine {
     int tick;
     const char *line;
 };
-// dinput codes W 17, D 32, space 57, lshift 42, lctrl 29, left mouse 256
+// dinput codes escape 1, W 17, D 32, lctrl 29, grave 41, lshift 42, space 57, left mouse 256
 const ScriptLine kControlScript[] = {
     {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
     {80, "player.SetAngle Z 90"}, {85, "HoldKey 17"}, {100, "ReleaseKey 17"},
@@ -57,7 +58,24 @@ struct Move {
     const char *name;
     int from, to;
 };
-const Move kMoves[] = {{"west", 40, 55}, {"east", 85, 100}, {"strafe", 125, 137}};
+const Move kControlMoves[] = {{"west", 40, 55}, {"east", 85, 100}, {"strafe", 125, 137}};
+
+const ScriptLine kMenugateScript[] = {
+    {40, "HoldKey 1"}, {43, "ReleaseKey 1"}, {50, "HoldKey 17"}, {65, "ReleaseKey 17"},
+    {75, "HoldKey 1"}, {78, "ReleaseKey 1"}, {90, "HoldKey 17"}, {105, "ReleaseKey 17"},
+    {115, "HoldKey 41"}, {118, "ReleaseKey 41"}, {120, "HoldKey 57"}, {123, "ReleaseKey 57"},
+    {125, "HoldKey 17"}, {140, "ReleaseKey 17"}, {141, "HoldKey 32"}, {146, "ReleaseKey 32"},
+    {150, "HoldKey 41"}, {153, "ReleaseKey 41"}, {160, "player.SetAngle Z 90"}, {165, "HoldKey 17"}, {180, "ReleaseKey 17"},
+};
+const Move kMenugateMoves[] = {{"pause", 50, 65}, {"resumed", 90, 105}, {"console", 125, 148}, {"closed", 165, 180}};
+
+struct ControlScript {
+    std::span<const ScriptLine> lines;
+    std::span<const Move> moves;
+    int end, jump_from, jump_to, shot;
+};
+const ControlScript kControl{kControlScript, kControlMoves, kControlTicks, kJumpFrom, kJumpTo, kControlShotTick};
+const ControlScript kMenugate{kMenugateScript, kMenugateMoves, 190, -1, -1, -1};
 
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
@@ -90,7 +108,8 @@ struct Control {
     float jump_floor = 0, jump_peak = 0, max_gap = 0;
     int frames = 0;
     uint32_t action = 0;
-    bool placed = false;
+    bool placed = false, blocked = false;
+    const ControlScript *script = nullptr;
 };
 Control g_ctl;
 
@@ -304,34 +323,37 @@ bool log_camera(Vec3 m, float heading) {
 }
 
 void control_tick() {
+    const ControlScript &s = *g_ctl.script;
     float cam = fnv::player()->rot[2];
-    tick_mario(make_inputs(cam, g_ctl.pad.right, g_ctl.pad.forward, g_ctl.pad.buttons));
+    // menus and the console still see the keys, mario must not
+    Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
+    tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
     Vec3 m = mario_pos();
     int t = g_sim.ticks;
     if (g_sim.state.action != g_ctl.action) {
         g_ctl.action = g_sim.state.action;
         logf("mario action tick=%d action=%08X pos=%s", t, g_ctl.action, xyz(m).c_str());
     }
-    for (const Move &mv : kMoves) {
+    for (const Move &mv : s.moves) {
         if (t == mv.from) g_ctl.move_from = m;
         if (t == mv.to)
             logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
     }
-    if (t == kJumpFrom) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
-    if (t > kJumpFrom && t <= kJumpTo) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
-    if (t == kJumpTo) logf("control jump rise=%.1f", g_ctl.jump_peak - g_ctl.jump_floor);
-    for (const ScriptLine &s : kControlScript) {
-        if (t != s.tick) continue;
+    if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
+    if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
+    if (t == s.jump_to) logf("control jump rise=%.1f", g_ctl.jump_peak - g_ctl.jump_floor);
+    for (const ScriptLine &line : s.lines) {
+        if (t != line.tick) continue;
         ControlState cs = control_state();
         logf("control focus tick=%d foreground=%d active=%d", t, cs.foreground, cs.active);
         if (!cs.foreground) return finish(false, "no_focus");
-        run_console(s.line);
+        run_console(line.line);
     }
-    if (t == kControlShotTick) {
+    if (t == s.shot) {
         take_screenshot();
         logf("screenshot requested tick=%d menu=%d", t, menu_mode());
     }
-    if (t < kControlTicks) return;
+    if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
     fnv::TESObjectREFR *p = fnv::player();
     ControlState cs = control_state();
@@ -354,6 +376,9 @@ void control_frame() {
         logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_sim.ticks, pad.forward, pad.right,
              pad.buttons.a, pad.buttons.b, pad.buttons.z);
     g_ctl.pad = pad;
+    bool blocked = menu_mode();
+    if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_sim.ticks, blocked, menu_mode());
+    g_ctl.blocked = blocked;
     run_ticks(control_tick);
     draw_mario();
     g_ctl.last = mario_pos();
@@ -361,7 +386,8 @@ void control_frame() {
     g_ctl.placed = true;
 }
 
-void tick_control_scenario() {
+void tick_control_scenario(const ControlScript &script) {
+    g_ctl.script = &script;
     if (g_sim.id >= 0) return control_frame();
     fnv::TESObjectCELL *c = settle_cell();
     if (!c) return;
@@ -385,7 +411,8 @@ void on_frame() {
     else if (g_config.scenario == "cell") tick_cell_scenario();
     else if (g_config.scenario == "collide") tick_collide_scenario();
     else if (g_config.scenario == "render") tick_render_scenario();
-    else if (g_config.scenario == "control") tick_control_scenario();
+    else if (g_config.scenario == "control") tick_control_scenario(kControl);
+    else if (g_config.scenario == "menugate") tick_control_scenario(kMenugate);
     if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 
