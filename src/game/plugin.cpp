@@ -1,4 +1,5 @@
 #include "core/config.h"
+#include "core/dds.h"
 #include "core/frame.h"
 #include "core/geo.h"
 #include "core/mesh.h"
@@ -37,6 +38,9 @@ const int kRenderShotTicks[2] = {70, 110};
 const int kRenderRunTick = 80;
 const int kRenderTicks = 120;
 const Vec3 kLight{0.4f, -0.6f, 0.7f};
+const char *kTextureDirs[] = {"Data\\Textures", "Data\\Textures\\sm64nv"};
+// the loader looks under data for this
+const char *kTexturePath = "textures\\sm64nv\\mario.dds";
 const int kJumpFrom = 160, kJumpTo = 200;
 const int kControlShotTick = 262;
 const int kControlTicks = 280;
@@ -142,7 +146,7 @@ struct Sim {
 };
 Sim g_sim;
 FixedStep g_step;
-MeshOut g_mesh;
+MeshOut g_mesh, g_decal;
 
 struct Smooth {
     int frames = 0, hitches = 0;
@@ -198,6 +202,11 @@ void on_post_load() {
     logf("rom ok sha256=%s", rc.sha256.c_str());
     sm64_register_debug_print_function(libsm64_print);
     sm64_global_init(g_rom.data(), g_texture.data());
+    for (const char *dir : kTextureDirs) CreateDirectoryA((g_dir + dir).c_str(), nullptr);
+    std::string path = g_dir + kTextureDirs[1] + "\\mario.dds";
+    std::vector<uint8_t> dds = atlas_dds(g_texture.data());
+    if (!write_file(path, dds)) return logf("refused: texture write path=%s", path.c_str());
+    logf("texture written path=%s bytes=%u", path.c_str(), (unsigned)dds.size());
     g_ready = true;
 }
 
@@ -320,7 +329,7 @@ void render_tick() {
     for (int shot : kRenderShotTicks) {
         if (g_sim.ticks != shot) continue;
         Vec3 m = mario_pos();
-        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_ticks.cur.tris, m.x, m.y, m.z,
+        logf("mario render tris=%u decal_tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_ticks.cur.tris, g_decal.tris, m.x, m.y, m.z,
              g_sim.state.action);
         take_screenshot();
         logf("screenshot requested tick=%d menu=%d", g_sim.ticks, menu_mode());
@@ -344,7 +353,8 @@ Vec3 draw_mario() {
     g_ticks.draw(alpha, g_drawn);
     Vec3 m = to_game(g_sim.frame, g_ticks.pos(alpha));
     convert_mesh(g_sim.frame, g_drawn.view(), m, kLight, g_mesh);
-    mario_mesh_update(g_mesh, m);
+    convert_decal(g_sim.frame, g_drawn.view(), m, kLight, g_decal);
+    mario_mesh_update(g_mesh, g_decal, m);
     return m;
 }
 
@@ -352,7 +362,7 @@ void spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead) {
     std::string why;
     void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
     if (!start_mario(c, ahead)) finish(false, "mario_create");
-    else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
+    else if (!mario_mesh_create(parent, kTexturePath, why)) finish(false, ("mesh " + why).c_str());
     frame_seconds();
 }
 

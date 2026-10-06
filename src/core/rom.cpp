@@ -29,4 +29,11 @@ std::vector<uint8_t> read_file(const std::string &path) {
     return out;
 }
 
+bool write_file(const std::string &path, const std::vector<uint8_t> &bytes) {
+    FILE *f = fopen(path.c_str(), "wb");
+    if (!f) return false;
+    bool ok = fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
+    return fclose(f) == 0 && ok;
+}
+
 }

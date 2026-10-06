@@ -17,5 +17,6 @@ struct RomCheck {
 
 RomCheck check_rom(const std::vector<uint8_t> &rom);
 std::vector<uint8_t> read_file(const std::string &path);
+bool write_file(const std::string &path, const std::vector<uint8_t> &bytes);
 
 }
