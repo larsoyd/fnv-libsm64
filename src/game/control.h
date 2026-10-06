@@ -21,6 +21,8 @@ bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before
 void release_player(const ControlState &saved);
 void move_player(Vec3 pos);
+// the node the courier's body hangs under, a room indoors where there are rooms
+void *body_parent();
 // culls the parts of the courier's body, true when any of them was showing
 bool hide_body();
 // keys only reach the game while its window has focus so ask the window manager for it

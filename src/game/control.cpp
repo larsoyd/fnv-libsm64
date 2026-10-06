@@ -163,6 +163,8 @@ void release_player(const ControlState &saved) {
     show_body();
 }
 
+void *body_parent() { return body() ? field<void *>(body(), 0x18) : nullptr; }
+
 void move_player(Vec3 pos) {
     void *p = fnv::player();
     reinterpret_cast<SetPos>(vslot(p, 0x2A8))(p, &pos);

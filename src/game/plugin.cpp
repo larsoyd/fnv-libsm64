@@ -563,6 +563,7 @@ Vec3 draw_mario() {
     float alpha = (float)g_step.alpha();
     g_ticks.draw(alpha, g_drawn);
     Vec3 m = to_game(g_sim.frame, g_ticks.pos(alpha));
+    if (mario_mesh_follow(body_parent())) logf("mesh hung %s", mario_mesh_chain().c_str());
     convert_mesh(g_sim.frame, g_drawn.view(), m, kLight, g_mesh);
     convert_decal(g_sim.frame, g_drawn.view(), m, kLight, g_decal);
     mario_mesh_update(g_mesh, g_decal, m);
@@ -578,7 +579,7 @@ void drop_mario() {
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why) {
     if (!start_mario(c, ahead)) why = "mario_create";
-    else if (!mario_mesh_create(scene_root(), kTexturePath, why)) why = "mesh " + why;
+    else if (!mario_mesh_create(kTexturePath, why)) why = "mesh " + why;
     if (!why.empty()) drop_mario();
     frame_seconds();
     return why.empty();

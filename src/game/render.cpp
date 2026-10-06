@@ -23,6 +23,7 @@ using AlphaCtor = void *(__cdecl *)();
 using ListNodeAlloc = void **(__cdecl *)();
 using ShaderSetup = void(__cdecl *)(void *, uint32_t, uint32_t, uint32_t);
 using AddObject = void(__thiscall *)(void *, void *, bool);
+using RemoveObject = void(__thiscall *)(void *, void *);
 using UpdateDownward = void(__thiscall *)(void *, const void *, uint32_t);
 using LoadTexture = void(__thiscall *)(void *, const char *, void **, bool, bool);
 using Screenshot = void(__cdecl *)(int);
@@ -40,7 +41,7 @@ struct Shape {
 
 const uint8_t kUpdateData[12] = {};
 Shape g_body, g_decal;
-void *g_parent, *g_face_tex;
+void *g_face_tex;
 
 void *ni_alloc(size_t n) { return engine<NiAlloc>(0xAA13E0)(n); }
 
@@ -79,12 +80,21 @@ Shape make_shape(void *texture) {
     add_property(s.shape, prop);
     engine<ObjCtor>(0xA5A040)(s.shape);
     engine<ShaderSetup>(0xB57BD0)(s.shape, 0, 0, 0);
+    // a count of our own, so a parent that goes away with its cell does not take the shape along
+    field<uint32_t>(s.shape, 0x04)++;
     return s;
 }
 
-void attach(Shape &s, void *parent) { virt<AddObject>(parent, 0xDC)(parent, s.shape, true); }
+void *parent_of(const Shape &s) { return field<void *>(s.shape, 0x18); }
 
-void update_shape(Shape &s, const MeshOut &m, Vec3 at) {
+void hang(Shape &s, void *parent) {
+    if (void *old = parent_of(s)) virt<RemoveObject>(old, 0xE8)(old, s.shape);
+    virt<AddObject>(parent, 0xDC)(parent, s.shape, true);
+}
+
+void update_shape(Shape &s, const MeshOut &m, Vec3 world) {
+    void *parent = parent_of(s);
+    if (!parent) return;
     memcpy(s.verts, m.pos.data(), kVerts * sizeof(Vec3));
     memcpy(s.normals, m.normal.data(), kVerts * sizeof(Vec3));
     memcpy(s.colors, m.color.data(), kVerts * 4 * sizeof(float));
@@ -93,7 +103,9 @@ void update_shape(Shape &s, const MeshOut &m, Vec3 at) {
     // bound center and radius, mario stands about 110 units tall
     field<float>(s.data, 0x10) = 0, field<float>(s.data, 0x14) = 0, field<float>(s.data, 0x18) = 60;
     field<float>(s.data, 0x1C) = 120;
-    field<float>(s.shape, 0x58) = at.x, field<float>(s.shape, 0x5C) = at.y, field<float>(s.shape, 0x60) = at.z;
+    Placing p = place_under(&field<float>(parent, 0x68), field<Vec3>(parent, 0x8C), field<float>(parent, 0x98), world);
+    memcpy(&field<float>(s.shape, 0x34), p.rot, sizeof p.rot);
+    field<Vec3>(s.shape, 0x58) = p.at, field<float>(s.shape, 0x64) = p.scale;
     virt<UpdateDownward>(s.shape, 0xA4)(s.shape, kUpdateData, 0);
 }
 
@@ -116,43 +128,44 @@ void set_hidden(void *shape, bool hidden) {
 
 }
 
-bool mario_mesh_create(void *parent, const char *texture, std::string &why) {
-    if (!rtti_is(parent, ".?AVNiNode@@")) {
-        why = std::string("parent type=") + rtti_name(parent);
-        return false;
-    }
+bool mario_mesh_create(const char *texture, std::string &why) {
     if (!g_face_tex && !load_texture(texture, why)) return false;
-    if (g_body.shape && (g_parent != parent || field<void *>(g_body.shape, 0x18) != parent)) {
-        why = "parent changed";
-        return false;
-    }
     if (g_body.shape) {
         set_hidden(g_body.shape, false), set_hidden(g_decal.shape, false);
-        logf("mesh shown parent=%s", rtti_name(parent));
+        logf("mesh shown");
         return true;
     }
     g_body = make_shape(nullptr);
     g_decal = make_shape(g_face_tex);
-    attach(g_body, parent), attach(g_decal, parent);
-    g_parent = parent;
-    float *rot = &field<float>(parent, 0x68);
-    logf("mesh created parent=%s parent_scale=%.3f parent_rot_diag=%.3f,%.3f,%.3f shape=%s decal=%s", rtti_name(parent),
-         field<float>(parent, 0x98), rot[0], rot[4], rot[8], rtti_name(g_body.shape), rtti_name(g_decal.shape));
+    logf("mesh created shape=%s decal=%s", rtti_name(g_body.shape), rtti_name(g_decal.shape));
+    return true;
+}
+
+bool mario_mesh_follow(void *parent) {
+    if (!g_body.shape || !is_ni_node(parent) || parent_of(g_body) == parent) return false;
+    hang(g_body, parent), hang(g_decal, parent);
     return true;
 }
 
 void mario_mesh_update(const MeshOut &body, const MeshOut &decal, Vec3 world) {
-    Vec3 at = {world.x - field<float>(g_parent, 0x8C), world.y - field<float>(g_parent, 0x90),
-               world.z - field<float>(g_parent, 0x94)};
-    update_shape(g_body, body, at);
-    update_shape(g_decal, decal, at);
+    update_shape(g_body, body, world);
+    update_shape(g_decal, decal, world);
 }
-
-void *scene_root() { return field<void *>(*reinterpret_cast<void **>(fnv::kTES), 0x0C); }
 
 void mario_mesh_hide() {
     if (g_body.shape) set_hidden(g_body.shape, true), set_hidden(g_decal.shape, true);
 }
+
+std::string node_chain(void *node) {
+    std::string out;
+    for (int i = 0; node && i < 16; i++, node = field<void *>(node, 0x18)) {
+        const char *name = field<const char *>(node, 0x08), *type = rtti_name(node);
+        out += std::string(i ? ">" : "") + (name ? name : "-") + "/" + type + ":" + std::to_string(field<uint32_t>(node, 0x30) & 1);
+    }
+    return out;
+}
+
+std::string mario_mesh_chain() { return node_chain(g_body.shape); }
 
 bool mario_mesh_hidden() { return (field<uint32_t>(g_body.shape, 0x30) & 1) && (field<uint32_t>(g_decal.shape, 0x30) & 1); }
 

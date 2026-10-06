@@ -67,4 +67,12 @@ void convert_decal(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 ancho
     }
 }
 
+Placing place_under(const float r[9], Vec3 parent_at, float parent_scale, Vec3 world) {
+    Vec3 d{(world.x - parent_at.x) / parent_scale, (world.y - parent_at.y) / parent_scale, (world.z - parent_at.z) / parent_scale};
+    // the parent's turn undone, which for a rotation is its rows read as columns
+    return {{r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]},
+            {r[0] * d.x + r[3] * d.y + r[6] * d.z, r[1] * d.x + r[4] * d.y + r[7] * d.z, r[2] * d.x + r[5] * d.y + r[8] * d.z},
+            1 / parent_scale};
+}
+
 }

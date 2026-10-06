@@ -16,6 +16,15 @@ struct MeshOut {
     uint32_t tris = 0;
 };
 
+// how a shape sits under its parent node, rotation as three rows
+struct Placing {
+    float rot[9];
+    Vec3 at;
+    float scale;
+};
+
+// the placing that draws a shape built in world axes around world, whatever its parent's own
+Placing place_under(const float parent_rot[9], Vec3 parent_at, float parent_scale, Vec3 world);
 void convert_mesh(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 anchor, Vec3 to_light, MeshOut &out);
 // only the textured triangles, lit grey so the atlas gives the color
 void convert_decal(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 anchor, Vec3 to_light, MeshOut &out);
