@@ -102,6 +102,9 @@ const int kLeaveShots[] = {215, 272};
 const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
 
 const int kReleaseShots[] = {177};
+const ControlScript kPlay{{}, {}, {}, INT32_MAX};
+const int kStatusTicks = 900;
+
 const ControlScript kRelease{kReleaseScript, kReleaseMoves, kReleaseShots, 230};
 
 nvse::PluginHandle g_handle;
@@ -428,6 +431,9 @@ void control_tick() {
         take_screenshot();
         logf("screenshot requested tick=%d menu=%d", t, menu_mode());
     }
+    if (t % kStatusTicks == 0)
+        logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X", t, g_frames, taken(), g_ctl.blocked,
+             xyz(m).c_str(), g_sim.state.action);
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
     ControlState cs = control_state();
@@ -481,7 +487,10 @@ void on_frame() {
     else if (g_config.scenario == "menugate") tick_control_scenario(kMenugate);
     else if (g_config.scenario == "release") tick_control_scenario(kRelease);
     else if (g_config.scenario == "leave") tick_control_scenario(kLeave);
-    if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
+    else if (g_config.scenario == "play") tick_control_scenario(kPlay);
+    // play runs until the game closes once it has the player
+    bool endless = g_config.scenario == "play" && g_ctl.cell;
+    if (!g_done && !g_config.scenario.empty() && !endless && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 
 void on_message(nvse::Message *m) {
