@@ -79,7 +79,7 @@ bool take_player(std::string &why) {
     *reinterpret_cast<float *>(kCameraZoom) = kZoom;
     // and the chase camera stops at 120 units which crops him
     field<float>(chase_setting(), 0x04) = kChase;
-    field<uint32_t>(body(), 0x30) |= 1;
+    hide_body();
     ControlState cs = control_state();
     if ((cs.controls & kBlockedControls) == kBlockedControls && cs.hidden) return true;
     why = "readback controls=" + hex(cs.controls) + " hidden=" + std::to_string(cs.hidden);
@@ -99,6 +99,12 @@ void release_player(const ControlState &saved) {
 void move_player(Vec3 pos) {
     void *p = fnv::player();
     reinterpret_cast<SetPos>(vslot(p, 0x2A8))(p, &pos);
+}
+
+bool hide_body() {
+    if (!body() || field<uint32_t>(body(), 0x30) & 1) return false;
+    field<uint32_t>(body(), 0x30) |= 1;
+    return true;
 }
 
 void focus_game() {

@@ -61,8 +61,8 @@ struct ScriptLine {
     int tick;
     const char *line;
 };
-// dinput codes esc 1, W 17, S 31, D 32, F 33, ctrl 29, grave 41, shift 42, M 50, space 57
-// and 256 is the left mouse button
+// dinput codes esc 1, tab 15, W 17, S 31, D 32, F 33, ctrl 29, grave 41
+// shift 42, M 50, space 57 and 256 is the left mouse button
 const ScriptLine kControlScript[] = {
     {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
     {80, "player.SetAngle Z 90"}, {85, "HoldKey 17"}, {100, "ReleaseKey 17"},
@@ -140,6 +140,13 @@ const ScriptLine kWallsScript[] = {
     {200, "HoldKey 17"}, {290, "ReleaseKey 17"}, {295, "spot gap_out"},
 };
 const ControlScript kWalls{kWallsScript, {}, {}, 305};
+
+// tab opens the pip-boy and closes it again
+const ScriptLine kPipboyScript[] = {
+    {40, "state"}, {45, "HoldKey 15"}, {48, "ReleaseKey 15"}, {110, "state"},
+    {130, "HoldKey 15"}, {133, "ReleaseKey 15"}, {200, "state"},
+};
+const ControlScript kPipboy{kPipboyScript, {}, {}, 215};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -567,6 +574,10 @@ void control_tick() {
         // pad lines are for the virtual gamepad that follows this log
         if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
         else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
+        else if (!strcmp(line.line, "state")) {
+            logf("control state tick=%d %s", t, describe(control_state()).c_str());
+            if (!log_camera(m, cam)) return finish(false, "camera");
+        }
         else if (!strncmp(line.line, "spot ", 5))
             logf("control spot name=%s pos=%s action=%08X", line.line + 5, xyz(m).c_str(), g_sim.state.action);
         else run_console(line.line);
@@ -584,6 +595,7 @@ void control_tick() {
     if (!log_camera(m, cam)) return finish(false, "camera");
     ControlState cs = control_state();
     logf("control follow frames=%d max_gap=%.2f", g_ctl.frames, g_ctl.max_gap);
+    if (taken()) log_window("end");
     logf("control end third=%d hidden=%d player=%s mario=%s", cs.third, cs.hidden, xyz(player_pos()).c_str(), xyz(m).c_str());
     finish(true, "");
 }
@@ -626,6 +638,7 @@ void control_frame() {
     if (taken() && !blocked && sound_ready()) sound_pump();
     if (taken() && loaded_cell() != g_ctl.cell) release_control("cell");
     if (!taken() || g_done) return;
+    if (hide_body()) logf("control rehide tick=%d", g_ctl.tick);
     Vec3 drawn = draw_mario();
     if (in_move(g_ctl.tick)) track_smooth(std::hypot(drawn.x - g_ctl.last.x, drawn.y - g_ctl.last.y, drawn.z - g_ctl.last.z));
     g_ctl.last = drawn;
@@ -654,6 +667,7 @@ void on_frame() {
     else if (g_config.scenario == "play") tick_control_scenario(kPlay);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
+    else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
     if (!g_done && !g_config.scenario.empty() && !endless && g_frames >= kScenarioTimeout) finish(false, "timeout");

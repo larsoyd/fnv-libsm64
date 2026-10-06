@@ -19,6 +19,8 @@ bool take_player(std::string &why);
 // puts back what take_player changed from the state it saw before
 void release_player(const ControlState &saved);
 void move_player(Vec3 pos);
+// back in third person the game shows the body again, true when it had to cull it
+bool hide_body();
 // keys only reach the game while its window has focus so ask the window manager for it
 void focus_game();
 ControlState control_state();
