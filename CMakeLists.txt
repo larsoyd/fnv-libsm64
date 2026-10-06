@@ -30,7 +30,7 @@ target_include_directories(sm64 PUBLIC ${SM64_DIR}/src)
 target_compile_definitions(sm64 PUBLIC SM64_LIB_EXPORT PRIVATE GBI_FLOATS VERSION_US NO_SEGMENTED_MEMORY)
 target_compile_options(sm64 PRIVATE -fno-strict-aliasing -w)
 
-add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/orient.cpp src/core/step.cpp src/core/pad.cpp)
+add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/orient.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp)
 target_include_directories(sm64nv_core PUBLIC src)
 target_link_libraries(sm64nv_core PUBLIC sm64)
 target_compile_options(sm64nv_core PRIVATE -Wall -Wextra)

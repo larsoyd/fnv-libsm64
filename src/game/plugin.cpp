@@ -1,5 +1,6 @@
 #include "core/config.h"
 #include "core/frame.h"
+#include "core/geo.h"
 #include "core/mesh.h"
 #include "core/rom.h"
 #include "core/step.h"
@@ -116,9 +117,8 @@ std::vector<uint8_t> g_texture(4 * SM64_TEXTURE_WIDTH * SM64_TEXTURE_HEIGHT);
 uint32_t g_frames, g_settled;
 bool g_ready, g_done;
 
-float g_geo_pos[9 * SM64_GEO_MAX_TRIANGLES], g_geo_normal[9 * SM64_GEO_MAX_TRIANGLES];
-float g_geo_color[9 * SM64_GEO_MAX_TRIANGLES], g_geo_uv[6 * SM64_GEO_MAX_TRIANGLES];
-SM64MarioGeometryBuffers g_geo{g_geo_pos, g_geo_normal, g_geo_color, g_geo_uv, 0};
+MarioTicks g_ticks;
+Geo g_drawn;
 
 struct Sim {
     Frame frame{};
@@ -132,8 +132,14 @@ Sim g_sim;
 FixedStep g_step;
 MeshOut g_mesh;
 
+struct Smooth {
+    int frames = 0, still = 0;
+    float max_step = 0;
+};
+
 struct Control {
     Pad pad{};
+    Smooth smooth;
     Vec3 last{}, move_from{};
     float jump_floor = 0, jump_peak = 0, max_gap = 0;
     int frames = 0, tick = 0, restore_check = 0;
@@ -254,6 +260,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     sm64_static_surfaces_load(surfaces.data(), (uint32_t)surfaces.size());
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
+    g_ticks.reset(s);
     logf("mario create id=%d at=%.1f,%.1f,%.1f player_heading=%.3f", g_sim.id, at.x, at.y, at.z + 60, h);
     // face back toward the player, game heading h plus a half turn
     if (g_sim.id >= 0 && ahead > 0) sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(h + 3.14159265f));
@@ -263,7 +270,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
 Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.state.position[1], g_sim.state.position[2]}); }
 
 void tick_mario(const SM64MarioInputs &in) {
-    sm64_mario_tick(g_sim.id, &in, &g_sim.state, &g_geo);
+    g_ticks.tick(g_sim.id, in, g_sim.state);
     g_sim.ticks++;
 }
 
@@ -299,7 +306,7 @@ void render_tick() {
     for (int shot : kRenderShotTicks) {
         if (g_sim.ticks != shot) continue;
         Vec3 m = mario_pos();
-        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_geo.numTrianglesUsed, m.x, m.y, m.z,
+        logf("mario render tris=%u pos=%.1f,%.1f,%.1f action=%08X", g_ticks.cur.tris, m.x, m.y, m.z,
              g_sim.state.action);
         take_screenshot();
         logf("screenshot requested tick=%d menu=%d", g_sim.ticks, menu_mode());
@@ -317,10 +324,14 @@ void tick_collide_scenario() {
     if (c && !start_mario(c, 0)) finish(false, "mario_create");
 }
 
-void draw_mario() {
-    Vec3 m = mario_pos();
-    convert_mesh(g_sim.frame, g_geo, m, kLight, g_mesh);
+// frames land between 30 Hz ticks so draw the blend of the last two
+Vec3 draw_mario() {
+    float alpha = (float)g_step.alpha();
+    g_ticks.draw(alpha, g_drawn);
+    Vec3 m = to_game(g_sim.frame, g_ticks.pos(alpha));
+    convert_mesh(g_sim.frame, g_drawn.view(), m, kLight, g_mesh);
     mario_mesh_update(g_mesh, m);
+    return m;
 }
 
 void spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead) {
@@ -332,11 +343,12 @@ void spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead) {
 }
 
 void tick_render_scenario() {
-    if (g_sim.id >= 0) {
-        run_ticks(render_tick);
-        return draw_mario();
+    if (g_sim.id < 0) {
+        if (fnv::TESObjectCELL *c = settle_cell()) spawn_drawn_mario(c, kRenderSpawnAhead);
+        return;
     }
-    if (fnv::TESObjectCELL *c = settle_cell()) spawn_drawn_mario(c, kRenderSpawnAhead);
+    run_ticks(render_tick);
+    draw_mario();
 }
 
 std::string xyz(Vec3 v) {
@@ -412,9 +424,11 @@ void control_tick() {
         logf("mario action tick=%d action=%08X pos=%s", t, g_ctl.action, xyz(m).c_str());
     }
     for (const Move &mv : s.moves) {
-        if (t == mv.from) g_ctl.move_from = m;
-        if (t == mv.to)
-            logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
+        if (t == mv.from) g_ctl.move_from = m, g_ctl.smooth = {};
+        if (t != mv.to) continue;
+        logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
+        const Smooth &sm = g_ctl.smooth;
+        logf("control smooth name=%s frames=%d still=%d max_step=%.2f", mv.name, sm.frames, sm.still, sm.max_step);
     }
     if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
     if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
@@ -442,6 +456,21 @@ void control_tick() {
     finish(true, "");
 }
 
+bool in_move(int t) {
+    for (const Move &mv : g_ctl.script->moves)
+        if (t >= mv.from && t < mv.to) return true;
+    return false;
+}
+
+// a still frame while the sim moved is a hitch, a wall stop is not
+void track_smooth(float step) {
+    Smooth &sm = g_ctl.smooth;
+    Vec3 a = g_ticks.prev_pos, b = g_ticks.cur_pos;
+    if (std::hypot(b.x - a.x, b.y - a.y, b.z - a.z) < 0.01f) return;
+    sm.frames++, sm.still += step <= 0.01f;
+    sm.max_step = std::fmax(sm.max_step, step);
+}
+
 void control_frame() {
     if (g_ctl.placed) {
         Vec3 p = player_pos();
@@ -463,9 +492,10 @@ void control_frame() {
     run_ticks(control_tick);
     if (taken() && loaded_cell() != g_ctl.cell) release_control("cell");
     if (!taken() || g_done) return;
-    draw_mario();
-    g_ctl.last = mario_pos();
-    move_player(g_ctl.last);
+    Vec3 drawn = draw_mario();
+    if (in_move(g_ctl.tick)) track_smooth(std::hypot(drawn.x - g_ctl.last.x, drawn.y - g_ctl.last.y, drawn.z - g_ctl.last.z));
+    g_ctl.last = drawn;
+    move_player(drawn);
     g_ctl.placed = true;
 }
 
