@@ -8,6 +8,8 @@ extern "C" {
 SM64SurfaceCollisionData *loaded_surface_iter_get_at_index(uint32_t group, uint32_t index);
 // the library's own wall lookup, which the build renames to make room for the one below
 int32_t sm64_front_wall_collisions(SM64WallCollisionData *data);
+// and its floor lookup, renamed the same way
+float sm64_floor_under(float x, float y, float z, SM64SurfaceCollisionData **floor);
 }
 
 namespace sm64nv {
@@ -63,4 +65,35 @@ extern "C" int32_t f32_find_wall_collision(float *x, float *y, float *z, float o
 // looked up from the floor, a ceiling with no top over it holds him at any height above it
 extern "C" float vec3f_find_ceil(float *pos, float floor, SM64SurfaceCollisionData **ceil) {
     return sm64_surface_find_ceil(pos[0], std::max(floor + 80.0f, pos[1] + 78.0f), pos[2], ceil);
+}
+
+// room pieces leave strips without floor in doorways, which sm64 takes for walls
+// floors found close by on two opposite sides, well above what lies under, carry over
+extern "C" float find_floor(float x, float y, float z, SM64SurfaceCollisionData **floor) {
+    // sm64 units: how far and in what steps a side is looked for, how level the two must be
+    const float kReach = 24, kStep = 8, kLevel = 30;
+    float under = sm64_floor_under(x, y, z, floor);
+    if (*floor && under > y - kLevel) return under;
+    struct Side {
+        SM64SurfaceCollisionData *floor = nullptr;
+        float height = 0, away = 0;
+    };
+    auto side = [&](float dx, float dz) {
+        Side s;
+        for (s.away = kStep; s.away <= kReach; s.away += kStep) {
+            s.height = sm64_floor_under(x + dx * s.away, y, z + dz * s.away, &s.floor);
+            if (s.floor && s.height > under + kLevel) return s;
+        }
+        return Side{};
+    };
+    Side a, b;
+    float width = 4 * kReach, carried = under;
+    for (auto [dx, dz] : {std::pair{1.0f, 0.0f}, {0.0f, 1.0f}, {0.7071f, 0.7071f}, {0.7071f, -0.7071f}}) {
+        Side p = side(dx, dz), q = side(-dx, -dz);
+        if (!p.floor || !q.floor || std::fabs(p.height - q.height) > kLevel || p.away + q.away >= width) continue;
+        a = p, b = q, width = p.away + q.away;
+        carried = q.height + (p.height - q.height) * q.away / width;
+    }
+    if (a.floor) *floor = a.away <= b.away ? a.floor : b.floor;
+    return carried;
 }

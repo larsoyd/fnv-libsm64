@@ -29,9 +29,9 @@ target_include_directories(sm64 PRIVATE ${SM64_DIR}/src/decomp/include)
 target_include_directories(sm64 PUBLIC ${SM64_DIR}/src)
 target_compile_definitions(sm64 PUBLIC SM64_LIB_EXPORT PRIVATE GBI_FLOATS VERSION_US NO_SEGMENTED_MEMORY)
 target_compile_options(sm64 PRIVATE -fno-strict-aliasing -w)
-# renamed so the core can turn walls before the library reads them
+# renamed so the core can turn walls first and carry floors over doorway strips
 set_source_files_properties(${SM64_DIR}/src/decomp/engine/surface_collision.c PROPERTIES COMPILE_DEFINITIONS
-    "find_wall_collisions=sm64_front_wall_collisions;f32_find_wall_collision=sm64_front_wall_collision")
+    "find_wall_collisions=sm64_front_wall_collisions;f32_find_wall_collision=sm64_front_wall_collision;find_floor=sm64_floor_under")
 # and so a ceiling under mario's feet is not looked up for him
 set_source_files_properties(${SM64_DIR}/src/decomp/game/mario.c PROPERTIES COMPILE_DEFINITIONS
     "vec3f_find_ceil=sm64_ceil_over_floor")
