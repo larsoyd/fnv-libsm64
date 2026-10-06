@@ -10,6 +10,12 @@ static const uint16_t kTerrainStone = 1;
 // past about 78 degrees a face is meant as a wall but sm64 wants it within 0.01
 static const float kNearlyUpright = 0.2f;
 
+bool reaches(const Tri &t, Vec3 lo, Vec3 hi) {
+    // by its bounds, a floor can span the whole box with no corner in it
+    auto apart = [&](float Vec3::*k) { return std::max({t.a.*k, t.b.*k, t.c.*k}) < lo.*k || std::min({t.a.*k, t.b.*k, t.c.*k}) > hi.*k; };
+    return !apart(&Vec3::x) && !apart(&Vec3::y) && !apart(&Vec3::z);
+}
+
 std::vector<Tri> quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d) { return {{a, b, c}, {a, c, d}}; }
 
 std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &tris, SurfaceStats &stats,

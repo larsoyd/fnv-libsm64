@@ -73,15 +73,14 @@ struct Walker {
     CollisionStats &stats;
     uint32_t owner = 0;
 
-    bool inside(Vec3 p) const { return p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z; }
-
     static Vec3 to_game(const Xf &xf, Vec3 p) {
         p = apply(xf, p);
         return {p.x * kHavokToGame, p.y * kHavokToGame, p.z * kHavokToGame};
     }
 
     void keep(Vec3 a, Vec3 b, Vec3 c, bool solid = false) {
-        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c, owner, solid});
+        Tri t{a, b, c, owner, solid};
+        if (reaches(t, lo, hi)) out.push_back(t);
     }
 
     void emit_all(const Xf &xf, const std::vector<Tri> &tris) {

@@ -17,6 +17,8 @@ struct SurfaceStats {
     uint32_t floors = 0, walls = 0, ceilings = 0, degenerate = 0, stood_up = 0, still_steep = 0;
 };
 
+// whether the triangle comes into the box from lo to hi
+bool reaches(const Tri &t, Vec3 lo, Vec3 hi);
 // two triangles whose normal follows (b - a) x (c - a)
 std::vector<Tri> quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d);
 // kept gets the index in tris of each surface it returns
