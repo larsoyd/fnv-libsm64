@@ -14,6 +14,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <span>
 #include <string>
 #include <windows.h>
@@ -101,6 +102,17 @@ const ScriptLine kLeaveScript[] = {
 const Move kLeaveMoves[] = {{"mario", 40, 55}, {"courier", 200, 210}, {"again", 255, 270}};
 const int kLeaveShots[] = {215, 272};
 const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
+
+#define PAD_IDLE "pad lx=0 ly=0 lt=0 rt=0 buttons=0000"
+const ScriptLine kGamepadScript[] = {
+    {40, "pad lx=0 ly=32767 lt=0 rt=0 buttons=0000"}, {55, PAD_IDLE},
+    {80, "player.SetAngle Z 90"}, {85, "pad lx=17000 ly=0 lt=0 rt=0 buttons=0000"}, {100, PAD_IDLE},
+    {120, "pad lx=0 ly=0 lt=0 rt=0 buttons=1000"}, {123, PAD_IDLE},
+    {150, "pad lx=0 ly=0 lt=0 rt=0 buttons=4000"}, {153, PAD_IDLE},
+    {170, "pad lx=0 ly=0 lt=0 rt=255 buttons=0000"}, {185, PAD_IDLE},
+};
+const Move kGamepadMoves[] = {{"stick", 40, 55}, {"half", 85, 100}};
+const ControlScript kGamepad{kGamepadScript, kGamepadMoves, {}, 200};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -440,7 +452,9 @@ void control_tick() {
         ControlState cs = control_state();
         logf("control focus tick=%d foreground=%d active=%d", t, cs.foreground, cs.active);
         if (!cs.foreground) return finish(false, "no_focus");
-        run_console(line.line);
+        // pad lines are for the virtual gamepad that follows this log
+        if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
+        else run_console(line.line);
     }
     for (int shot : s.shots) {
         if (t != shot) continue;
@@ -521,6 +535,7 @@ void on_frame() {
     else if (g_config.scenario == "release") tick_control_scenario(kRelease);
     else if (g_config.scenario == "leave") tick_control_scenario(kLeave);
     else if (g_config.scenario == "play") tick_control_scenario(kPlay);
+    else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
     if (!g_done && !g_config.scenario.empty() && !endless && g_frames >= kScenarioTimeout) finish(false, "timeout");

@@ -11,6 +11,8 @@ namespace sm64nv {
 namespace {
 
 const uintptr_t kInputGlobals = 0x011F35CC;
+// the game's own copy of the xinput state, the gamepad report follows the packet number
+const uintptr_t kGamepadState = 0x011F35A8 + 4;
 const uintptr_t kOSGlobals = 0x011DEA0C;
 const uintptr_t kNoclip = 0x011C3C0D;
 const uintptr_t kSceneGraph = 0x011DEB7C;
@@ -58,7 +60,7 @@ bool chase_setting_ok() {
 bool read_game_pad(Pad &pad, bool &toggle) {
     auto *g = *reinterpret_cast<uint8_t **>(kInputGlobals);
     if (!g || !(field<uint32_t>(g, 0x04) & kHasKeyboard)) return false;
-    pad = read_pad(g + 0x18F8, g + 0x1B30);
+    pad = merge_pads(read_pad(g + 0x18F8, g + 0x1B30), read_gamepad(*reinterpret_cast<const GamepadState *>(kGamepadState)));
     toggle = toggle_held(g + 0x18F8);
     return true;
 }
