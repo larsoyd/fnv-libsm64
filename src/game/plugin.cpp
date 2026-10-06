@@ -107,16 +107,19 @@ const Move kLeaveMoves[] = {{"mario", 40, 55}, {"courier", 200, 210}, {"again", 
 const int kLeaveShots[] = {215, 272};
 const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
 
-#define PAD_IDLE "pad lx=0 ly=0 lt=0 rt=0 buttons=0000"
+#define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
+#define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
 const ScriptLine kGamepadScript[] = {
-    {40, "pad lx=0 ly=32767 lt=0 rt=0 buttons=0000"}, {55, PAD_IDLE},
-    {80, "player.SetAngle Z 90"}, {85, "pad lx=17000 ly=0 lt=0 rt=0 buttons=0000"}, {100, PAD_IDLE},
-    {120, "pad lx=0 ly=0 lt=0 rt=0 buttons=1000"}, {123, PAD_IDLE},
-    {150, "pad lx=0 ly=0 lt=0 rt=0 buttons=4000"}, {153, PAD_IDLE},
-    {170, "pad lx=0 ly=0 lt=0 rt=255 buttons=0000"}, {185, PAD_IDLE},
+    {40, "pad lx=0 ly=32767 rx=0 ry=0 lt=0 rt=0 buttons=0000"}, {55, PAD_IDLE},
+    {60, "pad lx=0 ly=0 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {70, PAD_IDLE},
+    {80, "player.SetAngle Z 90"}, {85, "pad lx=17000 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"}, {100, PAD_IDLE},
+    {120, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {123, PAD_IDLE},
+    {150, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=4000"}, {153, PAD_IDLE},
+    {170, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=255 buttons=0000"}, {185, PAD_IDLE},
+    {195, PAD_DPAD_DOWN}, {198, PAD_IDLE}, {210, PAD_DPAD_DOWN}, {213, PAD_IDLE},
 };
-const Move kGamepadMoves[] = {{"stick", 40, 55}, {"half", 85, 100}};
-const ControlScript kGamepad{kGamepadScript, kGamepadMoves, {}, 200};
+const Move kGamepadMoves[] = {{"stick", 40, 55}, {"look", 58, 74}, {"half", 85, 100}};
+const ControlScript kGamepad{kGamepadScript, kGamepadMoves, {}, 230};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};

@@ -37,7 +37,7 @@ Pad merge_pads(const Pad &keys, const Pad &pad) {
     return m;
 }
 
-bool toggle_held(const uint8_t *keys) { return down(keys, kKeyM); }
+bool toggle_held(const uint8_t *keys, const GamepadState &pad) { return down(keys, kKeyM) || (pad.buttons & kPadDpadDown); }
 
 bool Press::edge(bool now) {
     bool fired = now && !held;
