@@ -1,6 +1,5 @@
 #include "game/collision.h"
 #include "core/hull.h"
-#include "core/orient.h"
 #include "game/rtti.h"
 
 #include <cmath>
@@ -45,9 +44,10 @@ Xf compose(const Xf &outer, const Xf &inner) {
 Xf hk_transform(const void *p) { return {vec_at(p, 0), vec_at(p, 16), vec_at(p, 32), vec_at(p, 48)}; }
 
 struct Walker {
-    Vec3 lo, hi, open;
+    Vec3 lo, hi;
     std::vector<Tri> &out;
     CollisionStats &stats;
+    uint32_t owner = 0;
 
     bool inside(Vec3 p) const { return p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y && p.z >= lo.z && p.z <= hi.z; }
 
@@ -57,7 +57,7 @@ struct Walker {
     }
 
     void keep(Vec3 a, Vec3 b, Vec3 c) {
-        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c});
+        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c, owner});
     }
 
     void emit(const Xf &xf, Vec3 a, Vec3 b, Vec3 c) { keep(to_game(xf, a), to_game(xf, b), to_game(xf, c)); }
@@ -72,16 +72,13 @@ struct Walker {
         uint32_t ntri = at<uint32_t>(data, 0x08), nvert = at<uint32_t>(data, 0x0C);
         const uint16_t *tris = at<const uint16_t *>(data, 0x14);
         const float *verts = at<const float *>(data, 0x18);
-        Mesh mesh;
+        std::vector<Vec3> v;
         for (uint32_t i = 0; i < nvert; i++)
-            mesh.verts.push_back(to_game(xf, {verts[i * 3] * scale.x, verts[i * 3 + 1] * scale.y, verts[i * 3 + 2] * scale.z}));
+            v.push_back(to_game(xf, {verts[i * 3] * scale.x, verts[i * 3 + 1] * scale.y, verts[i * 3 + 2] * scale.z}));
         for (uint32_t i = 0; i < ntri; i++) {
             const uint16_t *t = tris + i * 4;
-            if (t[0] < nvert && t[1] < nvert && t[2] < nvert) mesh.tris.push_back({t[0], t[1], t[2]});
+            if (t[0] < nvert && t[1] < nvert && t[2] < nvert) keep(v[t[0]], v[t[1]], v[t[2]]);
         }
-        // the packed triangles keep raw strip winding so every other one faces the wrong way
-        orient_mesh(mesh, open, stats.orient);
-        for (const auto &t : mesh.tris) keep(mesh.verts[t[0]], mesh.verts[t[1]], mesh.verts[t[2]]);
     }
 
     void convex_vertices(const void *s, const Xf &xf) {
@@ -168,14 +165,15 @@ struct Walker {
 
 }
 
-std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, Vec3 open, float r, CollisionStats &stats) {
+std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
     std::vector<Tri> out;
-    Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, open, out, stats};
+    Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, out, stats};
     for (auto *it = &cell->objectList; it; it = it->next) {
         fnv::TESObjectREFR *ref = it->data;
         if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
         if (fnv::vtbl_of(ref) == fnv::kVtblPlayerCharacter) continue;
         stats.refs++;
+        w.owner = ref->form.refID;
         w.node(ref->renderState->niNode, 0);
     }
     return out;

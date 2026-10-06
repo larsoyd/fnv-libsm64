@@ -5,8 +5,10 @@
 #include "core/geo.h"
 #include "core/mesh.h"
 #include "core/rom.h"
+#include "core/stall.h"
 #include "core/step.h"
 #include "core/surfaces.h"
+#include "core/window.h"
 #include "game/collision.h"
 #include "game/control.h"
 #include "game/fnv.h"
@@ -31,6 +33,12 @@ const uint32_t kMenuFrames = 60;
 const uint32_t kSettleFrames = 120;
 const uint32_t kScenarioTimeout = 3000;
 const float kCollisionRadius = 3000;
+// game units, the window follows mario and faces turn toward him out to reach
+const float kWindowRadius = 2000;
+const float kFaceReach = 200;
+// sm64 units around mario's middle for the faces a stall line lists
+const float kStallRange = 80;
+const size_t kStallFaces = 8;
 const float kMaxScaleErr = 0.5f;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
@@ -53,7 +61,7 @@ struct ScriptLine {
     int tick;
     const char *line;
 };
-// dinput codes esc 1, W 17, D 32, F 33, ctrl 29, grave 41, shift 42, M 50, space 57
+// dinput codes esc 1, W 17, S 31, D 32, F 33, ctrl 29, grave 41, shift 42, M 50, space 57
 // and 256 is the left mouse button
 const ScriptLine kControlScript[] = {
     {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
@@ -123,6 +131,16 @@ const ScriptLine kGamepadScript[] = {
 const Move kGamepadMoves[] = {{"stick", 40, 55}, {"look", 58, 74}, {"half", 85, 100}};
 const ControlScript kGamepad{kGamepadScript, kGamepadMoves, {}, 230};
 
+// a backflip into the wall south of the start, then the gap behind the leaning shelf
+const ScriptLine kWallsScript[] = {
+    {40, "player.SetAngle Z 0"}, {45, "mario 1925 1856 7360 0"},
+    {55, "HoldKey 29"}, {63, "HoldKey 57"}, {66, "ReleaseKey 57"}, {75, "ReleaseKey 29"}, {110, "spot backflip"},
+    {112, "HoldKey 31"}, {180, "ReleaseKey 31"},
+    {185, "player.SetAngle Z 270"}, {190, "mario 2144.9 1830.9 7360 270"}, {195, "spot gap"},
+    {200, "HoldKey 17"}, {290, "ReleaseKey 17"}, {295, "spot gap_out"},
+};
+const ControlScript kWalls{kWallsScript, {}, {}, 305};
+
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
 const int kStatusTicks = 900;
@@ -150,6 +168,10 @@ struct Sim {
     float floor_z = 0, min_z = 0;
 };
 Sim g_sim;
+SurfaceWindow g_window{{}, 0, 0};
+std::vector<uint32_t> g_owners;
+uint32_t g_window_loads;
+StallWatch g_stall;
 FixedStep g_step;
 MeshOut g_mesh, g_decal;
 
@@ -266,8 +288,6 @@ void tick_cell_scenario() {
 void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss) {
     logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u", st.refs, st.bodies, (unsigned)tris,
          ss.floors, ss.walls, ss.ceilings, ss.degenerate);
-    logf("collision orient components=%u inside=%u flipped=%u conflicts=%u", st.orient.components, st.orient.inside,
-         st.orient.flipped, st.orient.conflicts);
     logf("havok scale samples=%d max_err=%.3f node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale_samples,
          st.scale_max_err, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z, st.scale_worst_body.x,
          st.scale_worst_body.y, st.scale_worst_body.z);
@@ -275,24 +295,37 @@ void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss
     for (const auto &[layer, n] : st.skipped_layers) logf("collision skipped layer=%d count=%d", layer, n);
 }
 
+void sync_window(Vec3 feet) {
+    if (!g_window.update(feet)) return;
+    sm64_static_surfaces_load(g_window.loaded().data(), (uint32_t)g_window.loaded().size());
+    g_window_loads++;
+}
+
+void log_window(const char *when) {
+    logf("collision window when=%s loaded=%u gathers=%u flips=%u loads=%u", when, (unsigned)g_window.loaded().size(),
+         g_window.stats.gathers, g_window.stats.flips, g_window_loads);
+}
+
 bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     fnv::TESObjectREFR *p = fnv::player();
     float h = p->rot[2];
     Vec3 at{p->pos[0] + std::sin(h) * ahead, p->pos[1] + std::cos(h) * ahead, p->pos[2]};
     CollisionStats st;
-    Vec3 open{p->pos[0], p->pos[1], p->pos[2] + 60};
-    std::vector<Tri> tris = gather_collision(cell, at, open, kCollisionRadius, st);
+    std::vector<Tri> tris = gather_collision(cell, at, kCollisionRadius, st);
     write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
     g_sim.frame = {at, g_config.scale};
     SurfaceStats ss;
-    std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss);
+    std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &g_owners);
     log_collision(st, tris.size(), ss);
     if (!st.scale_samples || st.scale_max_err > kMaxScaleErr) {
         logf("refused: havok scale samples=%d max_err=%.3f limit=%.1f", st.scale_samples, st.scale_max_err, kMaxScaleErr);
         return false;
     }
-    sm64_static_surfaces_load(surfaces.data(), (uint32_t)surfaces.size());
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
+    g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale);
+    g_window_loads = 0, g_stall = {};
+    sync_window(s);
+    log_window("spawn");
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
     g_ticks.reset(s);
     logf("mario create id=%d at=%.1f,%.1f,%.1f player_heading=%.3f", g_sim.id, at.x, at.y, at.z + 60, h);
@@ -304,6 +337,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
 Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.state.position[1], g_sim.state.position[2]}); }
 
 void tick_mario(const SM64MarioInputs &in) {
+    sync_window(g_ticks.cur_pos);
     g_ticks.tick(g_sim.id, in, g_sim.state);
     g_sim.ticks++;
 }
@@ -445,6 +479,39 @@ void check_restored() {
     if (now != describe(g_ctl.saved)) finish(false, ("restore readback want " + describe(g_ctl.saved)).c_str());
 }
 
+const char *surface_kind(Vec3 n) { return n.y > 0.01f ? "floor" : n.y < -0.01f ? "ceiling" : "wall"; }
+
+// what mario stands on and pushes against when the stick moves him nowhere
+void log_stall(int t) {
+    Vec3 feet = g_ticks.cur_pos;
+    float floor = sm64_surface_find_floor_height(feet.x, feet.y, feet.z);
+    SM64SurfaceCollisionData *hit = nullptr;
+    float ceil = sm64_surface_find_ceil(feet.x, floor + 80, feet.z, &hit);
+    std::vector<size_t> faces = g_window.nearby({feet.x, feet.y + 80, feet.z}, kStallRange);
+    logf("stall tick=%d pos=%s action=%08X floor=%.1f ceil=%.1f faces=%u", t, xyz(mario_pos()).c_str(), g_sim.state.action,
+         g_sim.frame.origin.z + floor / g_sim.frame.scale, g_sim.frame.origin.z + ceil / g_sim.frame.scale, (unsigned)faces.size());
+    for (size_t k = 0; k < faces.size() && k < kStallFaces; k++) {
+        const SM64Surface &s = g_window.loaded()[faces[k]];
+        Vec3 n = dir_to_game(surface_normal(s)), c{0, 0, 0};
+        for (const auto &v : s.vertices) c = {c.x + v[0] / 3.0f, c.y + v[1] / 3.0f, c.z + v[2] / 3.0f};
+        logf("stall face kind=%s owner=%08X normal=%.2f,%.2f,%.2f at=%s", surface_kind(surface_normal(s)),
+             g_owners[g_window.source(faces[k])], n.x, n.y, n.z, xyz(to_game(g_sim.frame, c)).c_str());
+    }
+}
+
+void teleport_mario(const char *args) {
+    Vec3 g;
+    float deg;
+    if (sscanf(args, "%f %f %f %f", &g.x, &g.y, &g.z, &deg) != 4) return finish(false, "teleport args");
+    Vec3 s = to_sm64(g_sim.frame, g);
+    sm64_set_mario_position(g_sim.id, s.x, s.y, s.z);
+    sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(deg * 3.14159265f / 180));
+    sm64_set_mario_velocity(g_sim.id, 0, 0, 0);
+    sm64_set_mario_forward_velocity(g_sim.id, 0);
+    g_ticks.reset(s);
+    logf("control teleport tick=%d to=%s heading=%.1f", g_ctl.tick, xyz(g).c_str(), deg);
+}
+
 // wall clock so a recording of the stream can be lined up with the windows
 uint64_t unix_ms() {
     FILETIME ft;
@@ -470,6 +537,7 @@ void control_tick() {
         // menus and the console still see the keys, mario must not
         Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
         tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
+        if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t);
     }
     if (t == g_ctl.restore_check) check_restored();
     Vec3 m = taken() ? mario_pos() : player_pos();
@@ -498,6 +566,9 @@ void control_tick() {
         if (!cs.foreground) return finish(false, "no_focus");
         // pad lines are for the virtual gamepad that follows this log
         if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
+        else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
+        else if (!strncmp(line.line, "spot ", 5))
+            logf("control spot name=%s pos=%s action=%08X", line.line + 5, xyz(m).c_str(), g_sim.state.action);
         else run_console(line.line);
     }
     for (int shot : s.shots) {
@@ -508,6 +579,7 @@ void control_tick() {
     if (t % kStatusTicks == 0)
         logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X lib_msgs=%u", t, g_frames, taken(),
              g_ctl.blocked, xyz(m).c_str(), g_sim.state.action, (unsigned)g_lib_messages.total());
+    if (t % kStatusTicks == 0 && taken()) log_window("status");
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
     ControlState cs = control_state();
@@ -581,6 +653,7 @@ void on_frame() {
     else if (g_config.scenario == "leave") tick_control_scenario(kLeave);
     else if (g_config.scenario == "play") tick_control_scenario(kPlay);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
+    else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
     if (!g_done && !g_config.scenario.empty() && !endless && g_frames >= kScenarioTimeout) finish(false, "timeout");

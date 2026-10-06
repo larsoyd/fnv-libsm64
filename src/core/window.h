@@ -19,6 +19,8 @@ public:
     bool update(Vec3 feet);
     const std::vector<SM64Surface> &loaded() const { return loaded_; }
     uint32_t source(size_t i) const { return source_[i]; }
+    // loaded surfaces whose bounding box comes within range of p
+    std::vector<size_t> nearby(Vec3 p, float range) const;
     WindowStats stats;
 
 private:
