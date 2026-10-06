@@ -15,6 +15,7 @@ struct Frame {
 
 struct Buttons {
     bool a, b, z;
+    bool operator==(const Buttons &) const = default;
 };
 
 inline Vec3 dir_to_sm64(Vec3 g) { return {g.x, g.z, -g.y}; }
