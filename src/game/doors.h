@@ -11,6 +11,8 @@ struct Door {
     Vec3 pos;
     // radians, the way the door faces when shut
     float heading;
+    // how far it reaches from pos before the turn, a gate is placed by one end
+    Vec3 lo, hi;
     bool teleports;
 };
 

@@ -28,7 +28,11 @@ std::vector<Door> cell_doors(fnv::TESObjectCELL *cell) {
         fnv::TESObjectREFR *ref = it->data;
         if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
         if (!ref->baseForm || ref->baseForm->typeID != kFormDoor || !rtti_is(ref->baseForm, ".?AVTESObjectDOOR@@")) continue;
-        out.push_back({ref, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], teleports(ref)});
+        // the base form's bounds are six shorts, low corner then high corner
+        auto *b = reinterpret_cast<const int16_t *>(reinterpret_cast<const uint8_t *>(ref->baseForm) + 0x24);
+        float k = ref->scale;
+        out.push_back({ref, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], {b[0] * k, b[1] * k, b[2] * k},
+                       {b[3] * k, b[4] * k, b[5] * k}, teleports(ref)});
     }
     return out;
 }

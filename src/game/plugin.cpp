@@ -345,6 +345,12 @@ const ScriptLine kPrisonScript[] = {
     {242, "HoldKey 17"}, {282, "ReleaseKey 17"}, {292, "spot pillar"},
 };
 const ControlScript kPrison{kPrisonScript, {}, {}, 300};
+// in front of a city gate 480 wide, which is placed by one end 233 away
+const ScriptLine kGateScript[] = {
+    {45, "cow WastelandNV -3 25"},
+    {200, "mario -9668.5 102910.7 4340 220"}, {230, "doors"}, {235, "HoldKey 18"}, {238, "ReleaseKey 18"},
+};
+const ControlScript kGate{kGateScript, {}, {}, 320};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -981,13 +987,13 @@ void log_doors() {
 void use_door() {
     std::vector<Door> doors = cell_doors(g_ctl.cell);
     std::vector<Vec3> at;
-    for (const Door &d : doors) at.push_back(d.pos);
     Vec3 m = mario_pos();
+    for (const Door &d : doors) at.push_back(nearest_in_box(m, d.pos, d.heading, d.lo, d.hi));
     int i = nearest_within(at, m, kDoorReach);
     if (i < 0) return logf("control door tick=%d ref=none doors=%u", g_ctl.tick, (unsigned)doors.size());
     const Door &d = doors[i];
     logf("control door tick=%d ref=%08X teleports=%d dist=%.1f", g_ctl.tick, d.ref->form.refID, d.teleports,
-         std::hypot(d.pos.x - m.x, d.pos.y - m.y, d.pos.z - m.z));
+         std::hypot(at[i].x - m.x, at[i].y - m.y, at[i].z - m.z));
     logf("control activated ref=%08X ok=%d", d.ref->form.refID, activate(d.ref));
     if (!d.teleports) g_sim.swing_until = g_sim.ticks + kDoorSwingTicks;
 }
@@ -1240,6 +1246,7 @@ void on_frame() {
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
     else if (g_config.scenario == "prison") tick_control_scenario(kPrison);
+    else if (g_config.scenario == "gate") tick_control_scenario(kGate);
     else if (g_config.scenario == "particles" || g_config.scenario == "noparticles") tick_control_scenario(kParticles);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
