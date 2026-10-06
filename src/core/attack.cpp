@@ -46,6 +46,8 @@ AttackProfile attack_profile(Attack kind) {
     }
 }
 
+float unarmed_scale(float skill) { return 0.5f + 0.5f * std::clamp(skill, 0.0f, 100.0f) / 100; }
+
 Vec3 nearest_on(const ActorBody &t, Vec3 p) {
     float fx = std::sin(t.heading), fy = std::cos(t.heading), dx = p.x - t.feet.x, dy = p.y - t.feet.y;
     float along = std::clamp(dx * fx + dy * fy, -t.half_length, t.half_length);

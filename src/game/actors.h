@@ -28,6 +28,8 @@ bool actor_standing(const fnv::TESObjectREFR *actor);
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
 float actor_max_health(fnv::TESObjectREFR *actor);
+// the unarmed skill as the game counts it now
+float actor_unarmed(fnv::TESObjectREFR *actor);
 // a bare handed blow by the player through the game's own hit handling
 // damage is what it does before armour, what the game made of it comes back
 float strike(fnv::TESObjectREFR *target, float damage);

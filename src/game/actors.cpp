@@ -101,6 +101,8 @@ float actor_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x0C, 
 
 float actor_max_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x04, kHealth); }
 
+float actor_unarmed(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x0C, kUnarmed); }
+
 float strike(fnv::TESObjectREFR *target, float damage) {
     void *hit = engine<Alloc>(0x00401000)(kHitSize);
     engine<HitCall>(0x009B4D90)(hit);

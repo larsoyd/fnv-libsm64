@@ -23,6 +23,8 @@ struct AttackProfile {
     float push;
 };
 AttackProfile attack_profile(Attack kind);
+// what the game's melee skill curve makes of a blow, half at no skill and whole at 100
+float unarmed_scale(float skill);
 
 // whether a blow from mario at feet, that tall and facing heading, meets the body
 bool attack_reaches(const AttackProfile &p, Vec3 feet, float height, float heading, const ActorBody &target);

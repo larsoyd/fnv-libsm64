@@ -319,11 +319,12 @@ const ScriptLine kActorsScript[] = {
 };
 const ControlScript kActors{kActorsScript, {}, {}, 230};
 // a settler made next to mario: a punch facing away, one at him, a jump kick and a pound
+// the courier is a ghost so the settler cannot hit back and stays where the blows expect him
 const ScriptLine kAttackScript[] = {
-    {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "actor SetRestrained 1"},
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "actor SetRestrained 1"},
     {60, "beside -85 0 270"}, {70, "actors 600"}, {75, "HoldKey 42"}, {77, "ReleaseKey 42"},
-    {100, "beside -85 0 90"}, {105, "HoldKey 42"}, {107, "ReleaseKey 42"},
-    {112, "puffs"}, {120, "actors 600"}, {125, "puffs"}, {135, "actor SetRestrained 0"},
+    {95, "player.SetAV Unarmed 100"}, {100, "beside -85 0 90"}, {105, "HoldKey 42"}, {107, "ReleaseKey 42"},
+    {112, "puffs"}, {120, "actors 600"}, {125, "puffs"}, {130, "player.SetAV Unarmed 0"}, {135, "actor SetRestrained 0"},
     {140, "beside -85 0 90"}, {150, "HoldKey 57"}, {153, "ReleaseKey 57"}, {156, "HoldKey 42"}, {158, "ReleaseKey 42"},
     {165, "actors 600"}, {200, "actors 600"}, {205, "puffs"},
     {215, "beside -85 0 90"}, {220, "HoldKey 57"}, {223, "ReleaseKey 57"}, {228, "HoldKey 29"}, {232, "ReleaseKey 29"},
@@ -1039,11 +1040,12 @@ void land_blows(int t) {
     AttackProfile p = attack_profile(now);
     Vec3 feet = mario_pos();
     float heading = heading_from_sm64_yaw(g_sim.state.faceAngle), scale = g_sim.frame.scale;
+    float unarmed = actor_unarmed(fnv::player()), skill = unarmed_scale(unarmed);
     for (const LiveActor &a : g_near) {
         if (!attack_reaches(p, feet, LastFit::kHeight / scale, heading, a.body) || !g_swing.lands(a.body.id)) continue;
-        float before = actor_health(a.ref), damage = strike(a.ref, p.damage * g_config.punch);
-        logf("attack hit tick=%d kind=%s ref=%08X damage=%.1f health=%.1f>%.1f", t, kAttackNames[(int)now], a.body.id, damage, before,
-             actor_health(a.ref));
+        float before = actor_health(a.ref), asked = p.damage * g_config.punch * skill, damage = strike(a.ref, asked);
+        logf("attack hit tick=%d kind=%s ref=%08X damage=%.1f health=%.1f>%.1f unarmed=%.0f scale=%.2f asked=%.2f", t,
+             kAttackNames[(int)now], a.body.id, damage, before, actor_health(a.ref), unarmed, skill, asked);
         if (p.push > 0 && g_thrown.allow(a.body.id, t))
             logf("attack push tick=%d ref=%08X force=%.1f ok=%d", t, a.body.id, p.push, shove(a.ref, feet, p.push));
         // libsm64 gives mario his own recoil and the sound of the hit
