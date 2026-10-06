@@ -4,8 +4,8 @@ Play as Mario in Fallout: New Vegas. This xNVSE plugin runs Super Mario 64's own
 [libsm64](https://github.com/libsm64/libsm64), collides it with the game's Havok geometry, draws Mario with
 textures read from your ROM, and plays his voice and sound effects.
 
-**Status: early prototype.** It is developed and tested in Doc Mitchell's house in Goodsprings, on the GOG
-release running under Proton on Linux.
+**Status: early prototype.** It is developed and tested in Doc Mitchell's house and the Goodsprings
+exterior around it, on the GOG release running under Proton on Linux.
 
 ## Requirements
 
@@ -55,15 +55,20 @@ with `refused:`.
 | Jump (A) | Space | A |
 | Punch, dive (B) | Shift or left mouse button | X |
 | Crouch (Z) | Ctrl | Either trigger |
+| Go through the nearest door | E | Y |
 | Camera | Mouse (untested without a controller) | Right stick |
 
 Mario ignores input while a menu, the Pip-Boy or the console is open.
 
 ## Known limitations
 
-- Only the cell where Mario takes over has collision. Changing cells hands control back to the Courier,
-  and Mario takes over again in the new cell (with `autotake=1`, otherwise press M).
-- No exterior terrain, water, doors or combat while Mario is active.
+- Mario collides with the static world and the terrain around him, gathered again as he moves. Objects that
+  move (opened doors, physics clutter, creatures) and water are not part of it.
+- Going through a door to another interior or to the outside hands control back to the Courier for a
+  moment. Mario takes over again on the other side with `autotake=1`, otherwise press M. So does fast
+  travel.
+- The door key only reaches doors in the cell Mario stands in. Other things cannot be activated, and
+  there is no combat while Mario is active.
 - Saving while Mario is active stores the Courier's own controls and camera, so the save also loads
   without the plugin.
 

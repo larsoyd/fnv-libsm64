@@ -6,6 +6,8 @@ namespace fnv {
 
 // addresses and layouts for game version 1.4.0.525 which always loads at its preferred base
 inline constexpr uintptr_t kPlayerSingleton = 0x011DEA3C;
+// holds the grid of loaded exterior cells and the node all cells hang under
+inline constexpr uintptr_t kTES = 0x011DEA10;
 
 inline constexpr uintptr_t kVtblPlayerCharacter = 0x0108AA3C;
 inline constexpr uintptr_t kVtblTESObjectCELL = 0x0102E9B4;
@@ -54,11 +56,21 @@ struct TESObjectCELL {
     uint8_t cellFlags;
     uint8_t cellGameFlags;
     uint8_t cellState;
-    uint8_t pad27[0xAC - 0x27];
+    uint8_t pad27[0x48 - 0x27];
+    // grid x and y, exterior cells only
+    const int32_t *coords;
+    void *land;
+    uint8_t pad50[0xAC - 0x50];
     ListNode<TESObjectREFR> objectList;
+    uint8_t padB4[0xC0 - 0xB4];
+    void *worldSpace;
+
+    bool interior() const { return cellFlags & 1; }
 };
 static_assert(offsetof(TESObjectCELL, cellFlags) == 0x24);
+static_assert(offsetof(TESObjectCELL, coords) == 0x48);
 static_assert(offsetof(TESObjectCELL, objectList) == 0xAC);
+static_assert(offsetof(TESObjectCELL, worldSpace) == 0xC0);
 
 inline uintptr_t vtbl_of(const void *obj) { return obj ? *reinterpret_cast<const uintptr_t *>(obj) : 0; }
 

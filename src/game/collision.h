@@ -9,7 +9,10 @@
 namespace sm64nv {
 
 struct CollisionStats {
-    int refs = 0, bodies = 0;
+    int cells = 0, refs = 0, bodies = 0;
+    // quarters of a cell's ground and how far the worst sits from where it is drawn
+    int land_quads = 0;
+    float land_max_err = 0;
     std::map<std::string, int> skipped_types;
     std::map<int, int> skipped_layers;
     int scale_samples = 0;
@@ -17,7 +20,8 @@ struct CollisionStats {
     Vec3 scale_worst_node{}, scale_worst_body{};
 };
 
-// static havok collision of the cell in game units, kept to the box around center
+// static havok collision in game units, kept to the box around center
+// outdoors it covers every loaded cell and the ground
 std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 center, float radius, CollisionStats &stats);
 void write_obj(const char *path, const std::vector<Tri> &tris);
 

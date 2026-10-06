@@ -1,7 +1,9 @@
 #include "game/collision.h"
 #include "core/hull.h"
+#include "core/land.h"
 #include "game/rtti.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -13,6 +15,12 @@ namespace {
 // node and body positions agree on this ratio to five digits, plain 7 is off by 1 in 8000
 const float kHavokToGame = 1 / 0.142875f;
 const int kMaxHullPoints = 64;
+const float kCellSize = 4096;
+// each quarter of a cell's ground is this many points a side
+const int kLandPoints = 17;
+const uint32_t kMaxGrid = 11;
+// a cell in this state has all its references attached
+const uint8_t kCellAttached = 6;
 // static, anim static, transparent, trees, props, terrain and ground
 const uint32_t kSolidLayers = 1u << 1 | 1u << 2 | 1u << 3 | 1u << 9 | 1u << 10 | 1u << 13 | 1u << 17;
 
@@ -151,6 +159,47 @@ struct Walker {
         shape(at<const void *>(hk, 0x10), xf, 0);
     }
 
+    // how far a quarter is from where its drawn shape sits and from the layout expected of it
+    float land_error(const void *node, const Vec3 *points, int q, Vec3 off) const {
+        const void *shape = rtti_is(node, ".?AVNiNode@@") && at<uint16_t>(node, 0xA6) ? *at<const void *const *>(node, 0xA0) : nullptr;
+        if (!shape) return kCellSize;
+        Vec3 t = vec_at(shape, 0x8C), first = points[0], last = points[kLandPoints * kLandPoints - 1];
+        float x = q % 2 ? 0 : -kCellSize / 2, y = q / 2 ? 0 : -kCellSize / 2;
+        return std::fabs(t.x - off.x) + std::fabs(t.y - off.y) + std::fabs(t.z - off.z) + std::fabs(first.x - x) +
+               std::fabs(first.y - y) + std::fabs(last.x - x - kCellSize / 2) + std::fabs(last.y - y - kCellSize / 2);
+    }
+
+    void land(const fnv::TESObjectCELL *cell) {
+        const void *data = rtti_is(cell->land, ".?AVTESObjectLAND@@") ? at<const void *>(cell->land, 0x28) : nullptr;
+        const void *geometry = data ? at<const void *>(data, 0x04) : nullptr;
+        const void *const *nodes = data ? at<const void *const *>(data, 0x00) : nullptr;
+        if (!geometry || !nodes || !cell->coords) return;
+        // points are measured from the middle of the cell at the mean height
+        Vec3 off{(cell->coords[0] + 0.5f) * kCellSize, (cell->coords[1] + 0.5f) * kCellSize, at<float>(data, 0xA0)};
+        float half = kCellSize / 2;
+        if (off.x + half < lo.x || off.x - half > hi.x || off.y + half < lo.y || off.y - half > hi.y) return;
+        owner = at<uint32_t>(cell->land, 0x0C);
+        for (int q = 0; q < 4; q++) {
+            const Vec3 *points = at<const Vec3 *>(geometry, q * 4);
+            if (!points) continue;
+            stats.land_quads++;
+            stats.land_max_err = std::fmax(stats.land_max_err, land_error(nodes[q], points, q, off));
+            for (const Tri &t : land_tris(points, kLandPoints, off, owner)) keep(t.a, t.b, t.c, true);
+        }
+    }
+
+    void refs(fnv::TESObjectCELL *cell) {
+        stats.cells++;
+        for (auto *it = &cell->objectList; it; it = it->next) {
+            fnv::TESObjectREFR *ref = it->data;
+            if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
+            if (fnv::vtbl_of(ref) == fnv::kVtblPlayerCharacter) continue;
+            stats.refs++;
+            owner = ref->form.refID;
+            node(ref->renderState->niNode, 0);
+        }
+    }
+
     void node(const void *av, int depth) {
         if (depth > 32) return;
         if (const void *co = at<const void *>(av, 0x1C)) body(co);
@@ -166,13 +215,18 @@ struct Walker {
 std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
     std::vector<Tri> out;
     Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, out, stats};
-    for (auto *it = &cell->objectList; it; it = it->next) {
-        fnv::TESObjectREFR *ref = it->data;
-        if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
-        if (fnv::vtbl_of(ref) == fnv::kVtblPlayerCharacter) continue;
-        stats.refs++;
-        w.owner = ref->form.refID;
-        w.node(ref->renderState->niNode, 0);
+    if (cell->interior()) {
+        w.refs(cell);
+        return out;
+    }
+    const void *grid = at<const void *>(*reinterpret_cast<void **>(fnv::kTES), 0x08);
+    if (!rtti_is(grid, ".?AVGridCellArray@@")) return out;
+    auto *cells = at<fnv::TESObjectCELL *const *>(grid, 0x10);
+    uint32_t n = std::min(at<uint32_t>(grid, 0x0C), kMaxGrid);
+    for (uint32_t i = 0; i < n * n; i++) {
+        if (fnv::vtbl_of(cells[i]) != fnv::kVtblTESObjectCELL || cells[i]->cellState != kCellAttached) continue;
+        w.refs(cells[i]);
+        w.land(cells[i]);
     }
     return out;
 }

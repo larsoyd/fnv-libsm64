@@ -8,6 +8,7 @@ namespace sm64nv {
 // directinput scan codes
 enum : uint8_t {
     kKeyW = 0x11,
+    kKeyE = 0x12,
     kKeyA = 0x1E,
     kKeyS = 0x1F,
     kKeyD = 0x20,
@@ -25,7 +26,7 @@ struct Pad {
     bool operator==(const Pad &) const = default;
 };
 
-enum : uint16_t { kPadDpadDown = 0x0002, kPadA = 0x1000, kPadX = 0x4000 };
+enum : uint16_t { kPadDpadDown = 0x0002, kPadA = 0x1000, kPadX = 0x4000, kPadY = 0x8000 };
 
 // xinput gamepad report as the game keeps it
 struct GamepadState {
@@ -42,6 +43,9 @@ Pad read_gamepad(const GamepadState &g);
 Pad merge_pads(const Pad &keys, const Pad &pad);
 // m on the keyboard or dpad down on the gamepad, which the game leaves unbound
 bool toggle_held(const uint8_t *keys, const GamepadState &pad);
+
+// e on the keyboard or y on the gamepad
+bool activate_held(const uint8_t *keys, const GamepadState &pad);
 
 struct Press {
     bool held = false;

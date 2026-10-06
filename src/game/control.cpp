@@ -3,8 +3,11 @@
 #include "game/log.h"
 #include "game/rtti.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <span>
+#include <vector>
 #include <windows.h>
 
 namespace sm64nv {
@@ -54,6 +57,27 @@ void *body() { return fnv::player()->renderState ? fnv::player()->renderState->n
 
 void *chase_setting() { return reinterpret_cast<void *>(kChaseSetting); }
 
+bool culled(void *node) { return field<uint32_t>(node, 0x30) & 1; }
+
+std::span<void *> body_parts() {
+    if (!body()) return {};
+    return {field<void **>(body(), 0xA0), field<uint16_t>(body(), 0xA6)};
+}
+
+// outdoors the game shows the body's own node again every frame so mario hides its parts
+std::vector<void *> g_hidden_parts;
+
+bool parts_hidden() {
+    std::span<void *> parts = body_parts();
+    return !parts.empty() && std::all_of(parts.begin(), parts.end(), [](void *p) { return !p || culled(p); });
+}
+
+void show_body() {
+    for (void *part : body_parts())
+        if (part && std::count(g_hidden_parts.begin(), g_hidden_parts.end(), part)) field<uint32_t>(part, 0x30) &= ~1u;
+    g_hidden_parts.clear();
+}
+
 // the courier's own state while mario has the player
 ControlState g_courier;
 bool g_taken;
@@ -80,12 +104,13 @@ bool chase_setting_ok() {
 
 }
 
-bool read_game_pad(Pad &pad, bool &toggle) {
+bool read_game_pad(Pad &pad, bool &toggle, bool &activate) {
     auto *g = *reinterpret_cast<uint8_t **>(kInputGlobals);
     if (!g || !(field<uint32_t>(g, 0x04) & kHasKeyboard)) return false;
     const GamepadState &gamepad = *reinterpret_cast<const GamepadState *>(kGamepadState);
     pad = merge_pads(read_pad(g + 0x18F8, g + 0x1B30), read_gamepad(gamepad));
     toggle = toggle_held(g + 0x18F8, gamepad);
+    activate = activate_held(g + 0x18F8, gamepad);
     return true;
 }
 
@@ -135,6 +160,7 @@ void release_player(const ControlState &saved) {
     field<float>(chase_setting(), 0x04) = saved.chase;
     // going back to first person culls the body again by itself
     if (body()) field<uint32_t>(body(), 0x30) &= ~1u;
+    show_body();
 }
 
 void move_player(Vec3 pos) {
@@ -143,9 +169,15 @@ void move_player(Vec3 pos) {
 }
 
 bool hide_body() {
-    if (!body() || field<uint32_t>(body(), 0x30) & 1) return false;
-    field<uint32_t>(body(), 0x30) |= 1;
-    return true;
+    bool hid = false;
+    for (void *part : body_parts()) {
+        if (!part || culled(part)) continue;
+        field<uint32_t>(part, 0x30) |= 1;
+        // parts the game culled itself are not ours to show again
+        if (!std::count(g_hidden_parts.begin(), g_hidden_parts.end(), part)) g_hidden_parts.push_back(part);
+        hid = true;
+    }
+    return hid;
 }
 
 void focus_game() {
@@ -164,7 +196,7 @@ bool camera_pos(Vec3 &out) {
 ControlState control_state() {
     void *p = fnv::player();
     return {field<uint8_t>(p, 0x680), *reinterpret_cast<uint8_t *>(kNoclip) != 0, field<uint8_t>(p, 0x64A) != 0,
-            body() && (field<uint32_t>(body(), 0x30) & 1), *reinterpret_cast<float *>(kCameraZoom),
+            body() && (culled(body()) || parts_hidden()), *reinterpret_cast<float *>(kCameraZoom),
             field<float>(chase_setting(), 0x04), has_focus(), os_globals() && field<uint8_t>(os_globals(), 0x03)};
 }
 

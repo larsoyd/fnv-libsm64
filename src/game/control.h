@@ -13,7 +13,7 @@ struct ControlState {
 };
 
 // false when the game's input globals are missing or report no keyboard
-bool read_game_pad(Pad &pad, bool &toggle);
+bool read_game_pad(Pad &pad, bool &toggle, bool &activate);
 // saves keep the courier's state, false when the slot is not the game's own
 bool hook_player_save(std::string &why);
 // turns off the game's own movement and goes third person with the body hidden
@@ -21,7 +21,7 @@ bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before
 void release_player(const ControlState &saved);
 void move_player(Vec3 pos);
-// back in third person the game shows the body again, true when it had to cull it
+// culls the parts of the courier's body, true when any of them was showing
 bool hide_body();
 // keys only reach the game while its window has focus so ask the window manager for it
 void focus_game();

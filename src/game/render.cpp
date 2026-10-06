@@ -1,4 +1,5 @@
 #include "game/render.h"
+#include "game/fnv.h"
 #include "game/log.h"
 #include "game/rtti.h"
 
@@ -10,7 +11,6 @@ namespace sm64nv {
 namespace {
 
 const uint32_t kVerts = 3 * SM64_GEO_MAX_TRIANGLES;
-const uintptr_t kTES = 0x011DEA10;
 // blend by source alpha over the body
 const uint16_t kDecalAlphaFlags = 0x10ED;
 
@@ -82,11 +82,7 @@ Shape make_shape(void *texture) {
     return s;
 }
 
-void attach(Shape &s, void *parent) {
-    virt<AddObject>(parent, 0xDC)(parent, s.shape, true);
-    // our own reference keeps the shape alive when the cell holding its parent unloads
-    field<uint32_t>(s.shape, 0x04)++;
-}
+void attach(Shape &s, void *parent) { virt<AddObject>(parent, 0xDC)(parent, s.shape, true); }
 
 void update_shape(Shape &s, const MeshOut &m, Vec3 at) {
     memcpy(s.verts, m.pos.data(), kVerts * sizeof(Vec3));
@@ -103,7 +99,7 @@ void update_shape(Shape &s, const MeshOut &m, Vec3 at) {
 
 bool load_texture(const char *path, std::string &why) {
     void *tex = nullptr;
-    engine<LoadTexture>(0x4568C0)(*reinterpret_cast<void **>(kTES), path, &tex, true, false);
+    engine<LoadTexture>(0x4568C0)(*reinterpret_cast<void **>(fnv::kTES), path, &tex, true, false);
     if (!rtti_is(tex, ".?AVNiSourceTexture@@")) {
         why = std::string("type=") + rtti_name(tex) + " path=" + path;
         return false;
@@ -126,12 +122,15 @@ bool mario_mesh_create(void *parent, const char *texture, std::string &why) {
         return false;
     }
     if (!g_face_tex && !load_texture(texture, why)) return false;
-    if (g_body.shape && field<void *>(g_body.shape, 0x18) == parent) {
+    if (g_body.shape && (g_parent != parent || field<void *>(g_body.shape, 0x18) != parent)) {
+        why = "parent changed";
+        return false;
+    }
+    if (g_body.shape) {
         set_hidden(g_body.shape, false), set_hidden(g_decal.shape, false);
         logf("mesh shown parent=%s", rtti_name(parent));
         return true;
     }
-    if (g_body.shape) logf("mesh replaced old=%s refs=%u", rtti_name(g_body.shape), field<uint32_t>(g_body.shape, 0x04));
     g_body = make_shape(nullptr);
     g_decal = make_shape(g_face_tex);
     attach(g_body, parent), attach(g_decal, parent);
@@ -149,7 +148,11 @@ void mario_mesh_update(const MeshOut &body, const MeshOut &decal, Vec3 world) {
     update_shape(g_decal, decal, at);
 }
 
-void mario_mesh_hide() { set_hidden(g_body.shape, true), set_hidden(g_decal.shape, true); }
+void *scene_root() { return field<void *>(*reinterpret_cast<void **>(fnv::kTES), 0x0C); }
+
+void mario_mesh_hide() {
+    if (g_body.shape) set_hidden(g_body.shape, true), set_hidden(g_decal.shape, true);
+}
 
 bool mario_mesh_hidden() { return (field<uint32_t>(g_body.shape, 0x30) & 1) && (field<uint32_t>(g_decal.shape, 0x30) & 1); }
 
