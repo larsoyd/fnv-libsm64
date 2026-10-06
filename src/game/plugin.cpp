@@ -75,10 +75,12 @@ const Move kMenugateMoves[] = {{"pause", 50, 65}, {"resumed", 90, 105}, {"consol
 struct ControlScript {
     std::span<const ScriptLine> lines;
     std::span<const Move> moves;
-    int end, jump_from, jump_to, shot;
+    std::span<const int> shots;
+    int end, jump_from = -1, jump_to = -1;
 };
-const ControlScript kControl{kControlScript, kControlMoves, kControlTicks, kJumpFrom, kJumpTo, kControlShotTick};
-const ControlScript kMenugate{kMenugateScript, kMenugateMoves, 190, -1, -1, -1};
+const int kControlShots[] = {kControlShotTick};
+const ControlScript kControl{kControlScript, kControlMoves, kControlShots, kControlTicks, kJumpFrom, kJumpTo};
+const ControlScript kMenugate{kMenugateScript, kMenugateMoves, {}, 190};
 
 const ScriptLine kReleaseScript[] = {
     {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
@@ -90,7 +92,17 @@ const ScriptLine kReleaseScript[] = {
     {210, "HoldKey 50"}, {212, "ReleaseKey 50"},
 };
 const Move kReleaseMoves[] = {{"mario", 40, 55}, {"courier", 100, 120}, {"again", 155, 175}};
-const ControlScript kRelease{kReleaseScript, kReleaseMoves, 230, -1, -1, 177};
+const ScriptLine kLeaveScript[] = {
+    {40, "HoldKey 17"}, {55, "ReleaseKey 17"}, {60, "coc GSProspectorSaloonInterior"}, {190, "pcb"},
+    {200, "HoldKey 17"}, {210, "ReleaseKey 17"}, {225, "HoldKey 50"}, {228, "ReleaseKey 50"},
+    {245, "player.SetAngle Z 180"}, {255, "HoldKey 17"}, {270, "ReleaseKey 17"},
+};
+const Move kLeaveMoves[] = {{"mario", 40, 55}, {"courier", 200, 210}, {"again", 255, 270}};
+const int kLeaveShots[] = {215, 272};
+const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
+
+const int kReleaseShots[] = {177};
+const ControlScript kRelease{kReleaseScript, kReleaseMoves, kReleaseShots, 230};
 
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
@@ -345,6 +357,10 @@ bool taken() { return g_sim.id >= 0; }
 Vec3 player_pos() { return {fnv::player()->pos[0], fnv::player()->pos[1], fnv::player()->pos[2]}; }
 
 void take_control() {
+    fnv::TESObjectCELL *c = loaded_cell();
+    if (!c) return logf("control take skipped tick=%d reason=no_cell", g_ctl.tick);
+    g_ctl.cell = c;
+    logf("control cell tick=%d id=%08X", g_ctl.tick, c->form.refID);
     g_ctl.saved = control_state();
     logf("control saved tick=%d %s", g_ctl.tick, describe(g_ctl.saved).c_str());
     g_ctl.restore_check = 0;
@@ -407,7 +423,8 @@ void control_tick() {
         if (!cs.foreground) return finish(false, "no_focus");
         run_console(line.line);
     }
-    if (t == s.shot) {
+    for (int shot : s.shots) {
+        if (t != shot) continue;
         take_screenshot();
         logf("screenshot requested tick=%d menu=%d", t, menu_mode());
     }
@@ -438,6 +455,7 @@ void control_frame() {
     if (g_ctl.toggle.edge(toggle) && !blocked) taken() ? release_control("key") : take_control();
     if (g_done) return;
     run_ticks(control_tick);
+    if (taken() && loaded_cell() != g_ctl.cell) release_control("cell");
     if (!taken() || g_done) return;
     draw_mario();
     g_ctl.last = mario_pos();
@@ -462,6 +480,7 @@ void on_frame() {
     else if (g_config.scenario == "control") tick_control_scenario(kControl);
     else if (g_config.scenario == "menugate") tick_control_scenario(kMenugate);
     else if (g_config.scenario == "release") tick_control_scenario(kRelease);
+    else if (g_config.scenario == "leave") tick_control_scenario(kLeave);
     if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 

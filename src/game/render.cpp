@@ -52,11 +52,12 @@ bool mario_mesh_create(void *parent, std::string &why) {
         why = std::string("parent type=") + rtti_name(parent);
         return false;
     }
-    if (g_shape && parent == g_parent) {
+    if (g_shape && field<void *>(g_shape, 0x18) == parent) {
         field<uint32_t>(g_shape, 0x30) &= ~1u;
         logf("mesh shown parent=%s", rtti_name(parent));
         return true;
     }
+    if (g_shape) logf("mesh replaced old=%s refs=%u", rtti_name(g_shape), field<uint32_t>(g_shape, 0x04));
     g_verts = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
     g_normals = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
     g_colors = static_cast<float *>(ni_alloc(kVerts * 4 * sizeof(float)));
@@ -70,6 +71,8 @@ bool mario_mesh_create(void *parent, std::string &why) {
     engine<ObjCtor>(0xA5A040)(g_shape);
     engine<ShaderSetup>(0xB57BD0)(g_shape, 0, 0, 0);
     virt<AddObject>(parent, 0xDC)(parent, g_shape, true);
+    // our own reference keeps the shape alive when the cell holding its parent unloads
+    field<uint32_t>(g_shape, 0x04)++;
     g_parent = parent;
     float *rot = &field<float>(parent, 0x68);
     logf("mesh created parent=%s parent_scale=%.3f parent_rot_diag=%.3f,%.3f,%.3f shape=%s", rtti_name(parent),
