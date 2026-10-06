@@ -446,8 +446,8 @@ void tick_cell_scenario() {
 }
 
 void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss) {
-    logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u stood_up=%u still_steep=%u", st.refs,
-         st.bodies, (unsigned)tris, ss.floors, ss.walls, ss.ceilings, ss.degenerate, ss.stood_up, ss.still_steep);
+    logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u stood_up=%u still_steep=%u steps=%u",
+         st.refs, st.bodies, (unsigned)tris, ss.floors, ss.walls, ss.ceilings, ss.degenerate, ss.stood_up, ss.still_steep, ss.steps);
     logf("havok scale samples=%d off=%d max_err=%.3f owner=%08X node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale.samples,
          st.scale.off, st.scale.worst, st.scale_worst_owner, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z,
          st.scale_worst_body.x, st.scale_worst_body.y, st.scale_worst_body.z);
