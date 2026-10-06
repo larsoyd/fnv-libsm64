@@ -47,7 +47,7 @@ endif()
 if(WIN32)
     # libsm64 marks its api dllexport and the script extender skips modules with over 50 exports
     add_custom_command(TARGET sm64 POST_BUILD COMMAND ${CMAKE_OBJCOPY} --remove-section=.drectve $<TARGET_FILE:sm64>)
-    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp)
+    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp src/game/control.cpp)
     set_target_properties(sm64nv PROPERTIES PREFIX "")
     target_compile_options(sm64nv PRIVATE -Wall -Wextra)
     target_link_libraries(sm64nv PRIVATE sm64nv_core -static -static-libgcc -static-libstdc++)

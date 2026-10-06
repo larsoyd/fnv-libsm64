@@ -10,6 +10,8 @@ inline constexpr uintptr_t kPlayerSingleton = 0x011DEA3C;
 inline constexpr uintptr_t kVtblPlayerCharacter = 0x0108AA3C;
 inline constexpr uintptr_t kVtblTESObjectCELL = 0x0102E9B4;
 inline constexpr uintptr_t kVtblNiNode = 0x0109B5AC;
+// bsfadenode carries no rtti locator so match its vtable exactly
+inline constexpr uintptr_t kVtblBSFadeNode = 0x010A8F90;
 
 struct TESForm {
     void *vtbl;

@@ -5,12 +5,14 @@
 #include "core/step.h"
 #include "core/surfaces.h"
 #include "game/collision.h"
+#include "game/control.h"
 #include "game/fnv.h"
 #include "game/log.h"
 #include "game/nvse.h"
 #include "game/render.h"
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <windows.h>
 
@@ -31,6 +33,31 @@ const int kRenderFaceTick = 60;
 const int kRenderShotTicks[2] = {70, 110};
 const int kRenderRunTick = 80;
 const int kRenderTicks = 120;
+const Vec3 kLight{0.4f, -0.6f, 0.7f};
+const int kJumpFrom = 160, kJumpTo = 200;
+const int kControlShotTick = 262;
+const int kControlTicks = 280;
+
+struct ScriptLine {
+    int tick;
+    const char *line;
+};
+// dinput codes W 17, D 32, space 57, lshift 42, lctrl 29, left mouse 256
+const ScriptLine kControlScript[] = {
+    {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
+    {80, "player.SetAngle Z 90"}, {85, "HoldKey 17"}, {100, "ReleaseKey 17"},
+    {125, "HoldKey 32"}, {137, "ReleaseKey 32"},
+    {160, "HoldKey 57"}, {163, "ReleaseKey 57"},
+    {205, "HoldKey 42"}, {208, "ReleaseKey 42"},
+    {215, "HoldKey 256"}, {218, "ReleaseKey 256"},
+    {230, "HoldKey 29"}, {245, "ReleaseKey 29"},
+};
+
+struct Move {
+    const char *name;
+    int from, to;
+};
+const Move kMoves[] = {{"west", 40, 55}, {"east", 85, 100}, {"strafe", 125, 137}};
 
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
@@ -56,6 +83,16 @@ struct Sim {
 Sim g_sim;
 FixedStep g_step;
 MeshOut g_mesh;
+
+struct Control {
+    Pad pad{};
+    Vec3 last{}, move_from{};
+    float jump_floor = 0, jump_peak = 0, max_gap = 0;
+    int frames = 0;
+    uint32_t action = 0;
+    bool placed = false;
+};
+Control g_ctl;
 
 double frame_seconds() {
     static LARGE_INTEGER freq, last;
@@ -228,21 +265,117 @@ void tick_collide_scenario() {
     if (c && !start_mario(c, 0)) finish(false, "mario_create");
 }
 
+void draw_mario() {
+    Vec3 m = mario_pos();
+    convert_mesh(g_sim.frame, g_geo, m, kLight, g_mesh);
+    mario_mesh_update(g_mesh, m);
+}
+
+void spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead) {
+    std::string why;
+    void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
+    if (!start_mario(c, ahead)) finish(false, "mario_create");
+    else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
+    frame_seconds();
+}
+
 void tick_render_scenario() {
     if (g_sim.id >= 0) {
         run_ticks(render_tick);
-        Vec3 m = mario_pos();
-        convert_mesh(g_sim.frame, g_geo, m, {0.4f, -0.6f, 0.7f}, g_mesh);
-        mario_mesh_update(g_mesh, m);
-        return;
+        return draw_mario();
     }
+    if (fnv::TESObjectCELL *c = settle_cell()) spawn_drawn_mario(c, kRenderSpawnAhead);
+}
+
+std::string xyz(Vec3 v) {
+    char buf[64];
+    snprintf(buf, sizeof buf, "%.1f,%.1f,%.1f", v.x, v.y, v.z);
+    return buf;
+}
+
+bool log_camera(Vec3 m, float heading) {
+    Vec3 c;
+    if (!camera_pos(c)) return false;
+    Vec3 d{c.x - m.x, c.y - m.y, c.z - m.z};
+    float back = -(d.x * std::sin(heading) + d.y * std::cos(heading));
+    float side = d.x * std::cos(heading) - d.y * std::sin(heading);
+    logf("control camera back=%.1f side=%.1f up=%.1f zoom=%.1f", back, side, d.z, control_state().zoom);
+    return true;
+}
+
+void control_tick() {
+    float cam = fnv::player()->rot[2];
+    tick_mario(make_inputs(cam, g_ctl.pad.right, g_ctl.pad.forward, g_ctl.pad.buttons));
+    Vec3 m = mario_pos();
+    int t = g_sim.ticks;
+    if (g_sim.state.action != g_ctl.action) {
+        g_ctl.action = g_sim.state.action;
+        logf("mario action tick=%d action=%08X pos=%s", t, g_ctl.action, xyz(m).c_str());
+    }
+    for (const Move &mv : kMoves) {
+        if (t == mv.from) g_ctl.move_from = m;
+        if (t == mv.to)
+            logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
+    }
+    if (t == kJumpFrom) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
+    if (t > kJumpFrom && t <= kJumpTo) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
+    if (t == kJumpTo) logf("control jump rise=%.1f", g_ctl.jump_peak - g_ctl.jump_floor);
+    for (const ScriptLine &s : kControlScript) {
+        if (t != s.tick) continue;
+        ControlState cs = control_state();
+        logf("control focus tick=%d foreground=%d active=%d", t, cs.foreground, cs.active);
+        if (!cs.foreground) return finish(false, "no_focus");
+        run_console(s.line);
+    }
+    if (t == kControlShotTick) {
+        take_screenshot();
+        logf("screenshot requested tick=%d menu=%d", t, menu_mode());
+    }
+    if (t < kControlTicks) return;
+    if (!log_camera(m, cam)) return finish(false, "camera");
+    fnv::TESObjectREFR *p = fnv::player();
+    ControlState cs = control_state();
+    logf("control follow frames=%d max_gap=%.2f", g_ctl.frames, g_ctl.max_gap);
+    logf("control end third=%d hidden=%d player=%s mario=%s", cs.third, cs.hidden,
+         xyz({p->pos[0], p->pos[1], p->pos[2]}).c_str(), xyz(m).c_str());
+    finish(true, "");
+}
+
+void control_frame() {
+    fnv::TESObjectREFR *p = fnv::player();
+    if (g_ctl.placed) {
+        float gap = std::hypot(p->pos[0] - g_ctl.last.x, p->pos[1] - g_ctl.last.y, p->pos[2] - g_ctl.last.z);
+        g_ctl.max_gap = std::fmax(g_ctl.max_gap, gap);
+        g_ctl.frames++;
+    }
+    Pad pad;
+    if (!read_game_pad(pad)) return finish(false, "input_globals");
+    if (pad != g_ctl.pad)
+        logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_sim.ticks, pad.forward, pad.right,
+             pad.buttons.a, pad.buttons.b, pad.buttons.z);
+    g_ctl.pad = pad;
+    run_ticks(control_tick);
+    draw_mario();
+    g_ctl.last = mario_pos();
+    move_player(g_ctl.last);
+    g_ctl.placed = true;
+}
+
+void tick_control_scenario() {
+    if (g_sim.id >= 0) return control_frame();
     fnv::TESObjectCELL *c = settle_cell();
     if (!c) return;
     std::string why;
-    void *parent = *reinterpret_cast<void **>(static_cast<uint8_t *>(fnv::player()->renderState->niNode) + 0x18);
-    if (!start_mario(c, kRenderSpawnAhead)) finish(false, "mario_create");
-    else if (!mario_mesh_create(parent, why)) finish(false, ("mesh " + why).c_str());
-    frame_seconds();
+    if (!take_player(why)) return finish(false, ("take " + why).c_str());
+    focus_game();
+    if (!control_state().noclip) run_console("tcl");
+    // chase camera stops at 120 and aims at courier eye height, both crop mario
+    run_console("SetGS fChaseCameraMax 250");
+    run_console("player.SetAngle X 20");
+    ControlState cs = control_state();
+    logf("control take controls=%02X noclip=%d hidden=%d", cs.controls, cs.noclip, cs.hidden);
+    if (!cs.noclip) return finish(false, "noclip");
+    spawn_drawn_mario(c, 0);
 }
 
 void on_frame() {
@@ -252,6 +385,7 @@ void on_frame() {
     else if (g_config.scenario == "cell") tick_cell_scenario();
     else if (g_config.scenario == "collide") tick_collide_scenario();
     else if (g_config.scenario == "render") tick_render_scenario();
+    else if (g_config.scenario == "control") tick_control_scenario();
     if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 
