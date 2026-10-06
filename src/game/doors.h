@@ -1,5 +1,6 @@
 #pragma once
 #include "core/frame.h"
+#include "core/regather.h"
 #include "game/fnv.h"
 
 #include <vector>
@@ -18,6 +19,8 @@ struct Door {
 
 // door references of the cell that are drawn
 std::vector<Door> cell_doors(fnv::TESObjectCELL *cell);
+// each drawn door of the loaded cells with the pose of its model
+std::vector<DoorPoses::Pose> door_poses(fnv::TESObjectCELL *cell);
 // the player uses the reference the way the activate key does
 bool activate(fnv::TESObjectREFR *ref);
 

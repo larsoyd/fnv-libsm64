@@ -1,6 +1,10 @@
 #pragma once
 #include "frame.h"
 
+#include <cstdint>
+#include <utility>
+#include <vector>
+
 namespace sm64nv {
 
 // when the world is gathered again around mario
@@ -20,6 +24,21 @@ private:
     float move_;
     Vec3 center_{};
     int wait_until_ = 0;
+};
+
+// a pose rounded so that a door read twice while still gives the same key
+uint64_t pose_key(const float rotation[9], Vec3 at);
+
+// the doors of the place by form id with the pose they had when the world was gathered
+class DoorPoses {
+public:
+    using Pose = std::pair<uint32_t, uint64_t>;
+    void loaded(std::vector<Pose> poses);
+    // one moved, came or went since then
+    bool changed(std::vector<Pose> now) const;
+
+private:
+    std::vector<Pose> poses_;
 };
 
 }

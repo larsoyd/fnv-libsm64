@@ -238,7 +238,20 @@ struct Walker {
     }
 };
 
+uint64_t fold_pose(const void *av, int depth) {
+    if (depth > 32 || !is_ni_node(av)) return 0;
+    Vec3 r0 = vec_at(av, 0x68), r1 = vec_at(av, 0x74), r2 = vec_at(av, 0x80);
+    float rotation[9] = {r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z};
+    uint64_t h = pose_key(rotation, vec_at(av, 0x8C));
+    const void *const *children = at<const void *const *>(av, 0xA0);
+    for (int i = 0, n = at<uint16_t>(av, 0xA6); i < n; i++)
+        if (children[i]) h = (h ^ fold_pose(children[i], depth + 1)) * 1099511628211ull;
+    return h;
 }
+
+}
+
+uint64_t node_pose(const void *node) { return fold_pose(node, 0); }
 
 // the cell itself indoors, outdoors every cell of the grid that has its references attached
 template <typename F> void each_cell(fnv::TESObjectCELL *cell, F visit) {

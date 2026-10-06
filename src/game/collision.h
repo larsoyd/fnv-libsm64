@@ -1,5 +1,6 @@
 #pragma once
 #include "core/agree.h"
+#include "core/regather.h"
 #include "core/surfaces.h"
 #include "game/fnv.h"
 
@@ -30,5 +31,7 @@ std::vector<fnv::TESObjectCELL *> loaded_cells(fnv::TESObjectCELL *cell);
 // references with a shape in the cell or outdoors in every loaded one, cheap to ask often
 int loaded_refs(fnv::TESObjectCELL *cell);
 void write_obj(const char *path, const std::vector<Tri> &tris);
+// where every node under this one stands, folded so the key changes when any of them moves
+uint64_t node_pose(const void *node);
 
 }

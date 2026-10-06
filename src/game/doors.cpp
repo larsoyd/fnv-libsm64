@@ -1,4 +1,5 @@
 #include "game/doors.h"
+#include "game/collision.h"
 #include "game/rtti.h"
 
 namespace sm64nv {
@@ -34,6 +35,13 @@ std::vector<Door> cell_doors(fnv::TESObjectCELL *cell) {
         out.push_back({ref, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], {b[0] * k, b[1] * k, b[2] * k},
                        {b[3] * k, b[4] * k, b[5] * k}, teleports(ref)});
     }
+    return out;
+}
+
+std::vector<DoorPoses::Pose> door_poses(fnv::TESObjectCELL *cell) {
+    std::vector<DoorPoses::Pose> out;
+    for (fnv::TESObjectCELL *c : loaded_cells(cell))
+        for (const Door &d : cell_doors(c)) out.push_back({d.ref->form.refID, node_pose(d.ref->renderState->niNode)});
     return out;
 }
 

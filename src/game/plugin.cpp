@@ -75,8 +75,8 @@ const int kControlTicks = 280;
 const int kRestoreTicks = 10;
 // about as far as the courier reaches with the activate key
 const float kDoorReach = 150;
-// how long a used door swings and how often the world is gathered again meanwhile
-const int kDoorSwingTicks = 60, kDoorLookTicks = 15;
+// how often the doors are looked at for one that swung since the world was gathered
+const int kDoorLookTicks = 15;
 // a place just arrived in may still be loading, so it is looked at again for this long
 const int kArriveLookTicks = 120;
 const uint32_t kActIdle = 0x0C400201;
@@ -269,6 +269,13 @@ const ScriptLine kSolidScript[] = {
     {260, "HoldKey 17"}, {300, "ReleaseKey 17"}, {310, "spot door_open"},
 };
 const ControlScript kSolid{kSolidScript, {}, {}, 320};
+// into the shut bathroom door, then through it once the game has swung it open on its own
+const ScriptLine kSwingScript[] = {
+    {40, "player.SetAngle Z 90"}, {45, "mario 1542.5 832.7 7360 90"}, {55, "HoldKey 17"}, {95, "ReleaseKey 17"},
+    {105, "spot door_shut"}, {107, "doors"}, {110, "open 001062AC"}, {130, "doors"}, {185, "doors"},
+    {190, "HoldKey 17"}, {230, "ReleaseKey 17"}, {240, "spot door_open"},
+};
+const ControlScript kSwing{kSwingScript, {}, {}, 250};
 // holds the sound device to see the stall recovery bring the stream back for the next jump
 const ScriptLine kSoundScript[] = {
     {40, "HoldKey 57"}, {43, "ReleaseKey 57"}, {70, "sound pause"}, {105, "sound status"},
@@ -377,7 +384,7 @@ struct Sim {
     Frame frame{};
     fnv::TESObjectCELL *cell = nullptr;
     int32_t id = -1;
-    int ticks = 0, swing_until = -1, arrive_until = -1;
+    int ticks = 0, arrive_until = -1;
     // references with a shape when the world was last gathered
     int refs = 0;
     SM64MarioState state{};
@@ -387,6 +394,7 @@ struct Sim {
 Sim g_sim;
 SurfaceWindow g_window{{}, 0, 0};
 Regather g_regather{kRegatherMove};
+DoorPoses g_doors;
 std::vector<uint32_t> g_owners;
 uint32_t g_solid;
 uint32_t g_window_loads;
@@ -586,23 +594,28 @@ struct Gathered {
     size_t tris;
     // bodies found away from their nodes and turned away from them
     int off, turned;
+    // spent walking the engine and spent building surfaces
+    float walk_ms, build_ms;
 };
 
 // collision around center in mario's frame, a refusal keeps the set that was there
 // the first gather in a place logs what it found, a take by hand also writes it out
 Gathered gather_world(Vec3 center, bool first, bool dump = false) {
     CollisionStats st;
+    double t0 = seconds_now();
     std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
     SurfaceStats ss;
     std::vector<uint32_t> kept;
+    double t1 = seconds_now();
     std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &kept);
+    float walk_ms = (t1 - t0) * 1000, build_ms = (seconds_now() - t1) * 1000;
     if (dump) write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
     if (first) log_collision(st, tris.size(), ss);
     std::string why = distrust(st);
     if (!why.empty()) {
         logf("refused: %s", why.c_str());
         g_regather.refused(g_sim.ticks);
-        return {0, st.scale.off, st.turn.off};
+        return {0, st.scale.off, st.turn.off, walk_ms, build_ms};
     }
     std::vector<bool> fixed;
     g_owners.clear(), g_solid = 0;
@@ -610,22 +623,24 @@ Gathered gather_world(Vec3 center, bool first, bool dump = false) {
     g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale, fixed);
     g_regather.loaded(center);
     g_sim.refs = st.refs;
-    return {tris.size(), st.scale.off, st.turn.off};
+    g_doors.loaded(door_poses(g_sim.cell));
+    return {tris.size(), st.scale.off, st.turn.off, walk_ms, build_ms};
 }
 
 void regather_when_far() {
     Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos);
-    // what was gathered still has a door he just used where it was
-    bool swinging = g_sim.ticks <= g_sim.swing_until && (g_sim.swing_until - g_sim.ticks) % kDoorLookTicks == 0;
     // a place just arrived in is gathered again when more of it has loaded and once at the end
     int left = g_sim.arrive_until - g_sim.ticks;
     bool arriving = left >= 0 && left % kDoorLookTicks == 0 && (!left || loaded_refs(g_sim.cell) != g_sim.refs);
-    if (!g_regather.due(m, g_sim.ticks) && !swinging && !arriving) return;
+    // what was gathered has a door where it stood then, however it was opened
+    bool swung = g_sim.ticks % kDoorLookTicks == 0 && g_doors.changed(door_poses(g_sim.cell));
+    const char *why = g_regather.due(m, g_sim.ticks) ? "far" : arriving ? "arrive" : swung ? "door" : nullptr;
+    if (!why) return;
     double t0 = seconds_now();
     float moved = g_regather.moved(m);
     Gathered g = gather_world(m, false);
-    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d", g_sim.ticks, moved,
-         (seconds_now() - t0) * 1000, g.tris != 0, (unsigned)g.tris, g.off, g.turned);
+    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d why=%s walk=%.1f build=%.1f",
+         g_sim.ticks, moved, (seconds_now() - t0) * 1000, g.tris != 0, (unsigned)g.tris, g.off, g.turned, why, g.walk_ms, g.build_ms);
 }
 
 bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
@@ -982,11 +997,18 @@ void log_doors() {
     std::vector<Door> doors = cell_doors(g_ctl.cell);
     logf("control doors tick=%d cell=%08X count=%u", g_ctl.tick, g_ctl.cell->form.refID, (unsigned)doors.size());
     for (const Door &d : doors)
-        logf("door ref=%08X base=%08X pos=%s heading=%.0f teleports=%d", d.ref->form.refID, d.ref->baseForm->refID, xyz(d.pos).c_str(),
-             d.heading * 180 / 3.14159265f, d.teleports);
+        logf("door ref=%08X base=%08X pos=%s heading=%.0f teleports=%d pose=%016llX", d.ref->form.refID, d.ref->baseForm->refID, xyz(d.pos).c_str(),
+             d.heading * 180 / 3.14159265f, d.teleports, (unsigned long long)node_pose(d.ref->renderState->niNode));
 }
 
 // the game refuses its own activate key while the player's movement is off
+// the game opens a door of the cell by form id, the way a menu or a script does
+void open_door(const char *id) {
+    uint32_t want = strtoul(id, nullptr, 16);
+    for (const Door &d : cell_doors(g_ctl.cell))
+        if (d.ref->form.refID == want) logf("control opened ref=%08X ok=%d", want, activate(d.ref));
+}
+
 void use_door() {
     std::vector<Door> doors = cell_doors(g_ctl.cell);
     std::vector<Vec3> at;
@@ -998,7 +1020,6 @@ void use_door() {
     logf("control door tick=%d ref=%08X teleports=%d dist=%.1f", g_ctl.tick, d.ref->form.refID, d.teleports,
          std::hypot(at[i].x - m.x, at[i].y - m.y, at[i].z - m.z));
     logf("control activated ref=%08X ok=%d", d.ref->form.refID, activate(d.ref));
-    if (!d.teleports) g_sim.swing_until = g_sim.ticks + kDoorSwingTicks;
 }
 
 // each push of the camera stick with how far the view turned
@@ -1058,6 +1079,7 @@ void control_tick() {
         else if (!strcmp(line.line, "sound pause")) sound_pause();
         else if (!strcmp(line.line, "sound status")) log_sound_status();
         else if (!strcmp(line.line, "doors")) log_doors();
+        else if (!strncmp(line.line, "open ", 5)) open_door(line.line + 5);
         else if (!strcmp(line.line, "puffs")) log_puffs();
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
@@ -1242,6 +1264,7 @@ void on_frame() {
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
     else if (g_config.scenario == "table") tick_control_scenario(kTable);
     else if (g_config.scenario == "solid") tick_control_scenario(kSolid);
+    else if (g_config.scenario == "swing") tick_control_scenario(kSwing);
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
