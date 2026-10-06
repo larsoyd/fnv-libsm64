@@ -35,13 +35,9 @@ target_include_directories(sm64nv_core PUBLIC src)
 target_link_libraries(sm64nv_core PUBLIC sm64)
 target_compile_options(sm64nv_core PRIVATE -Wall -Wextra)
 
-if(NOT WIN32)
-    enable_testing()
-    file(GLOB TEST_SRC tests/*.cpp)
-    add_executable(core_tests ${TEST_SRC})
-    target_include_directories(core_tests PRIVATE tests)
-    target_link_libraries(core_tests PRIVATE sm64nv_core m)
-    add_test(NAME core_tests COMMAND core_tests)
+# the native test suite is kept outside the repository
+if(SM64NV_TESTS AND NOT WIN32)
+    add_subdirectory(${SM64NV_TESTS} tests)
 endif()
 
 if(WIN32)
