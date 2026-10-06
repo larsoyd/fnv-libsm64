@@ -32,6 +32,9 @@ target_compile_options(sm64 PRIVATE -fno-strict-aliasing -w)
 # renamed so the core can turn walls before the library reads them
 set_source_files_properties(${SM64_DIR}/src/decomp/engine/surface_collision.c PROPERTIES COMPILE_DEFINITIONS
     "find_wall_collisions=sm64_front_wall_collisions;f32_find_wall_collision=sm64_front_wall_collision")
+# and so a ceiling under mario's feet is not looked up for him
+set_source_files_properties(${SM64_DIR}/src/decomp/game/mario.c PROPERTIES COMPILE_DEFINITIONS
+    "vec3f_find_ceil=sm64_ceil_over_floor")
 
 add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp)
 target_include_directories(sm64nv_core PUBLIC src)

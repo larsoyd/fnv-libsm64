@@ -59,3 +59,8 @@ extern "C" int32_t f32_find_wall_collision(float *x, float *y, float *z, float o
     *x = d.x, *y = d.y, *z = d.z;
     return hits;
 }
+
+// looked up from the floor, a ceiling with no top over it holds him at any height above it
+extern "C" float vec3f_find_ceil(float *pos, float floor, SM64SurfaceCollisionData **ceil) {
+    return sm64_surface_find_ceil(pos[0], std::max(floor + 80.0f, pos[1] + 78.0f), pos[2], ceil);
+}
