@@ -35,6 +35,24 @@ set_source_files_properties(${SM64_DIR}/src/decomp/engine/surface_collision.c PR
 # and so a ceiling under mario's feet is not looked up for him
 set_source_files_properties(${SM64_DIR}/src/decomp/game/mario.c PROPERTIES COMPILE_DEFINITIONS
     "vec3f_find_ceil=sm64_ceil_over_floor")
+# called from the files that define them, so a copy renames those and ours take the names
+function(sm64_rename_definitions rel names)
+    set(in ${SM64_DIR}/src/${rel})
+    set(out ${CMAKE_CURRENT_BINARY_DIR}/sm64_patched/${rel})
+    add_custom_command(OUTPUT ${out}
+        COMMAND ${CMAKE_COMMAND} -DIN=${in} -DOUT=${out} "-DNAMES=${names}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/rename_definition.cmake
+        DEPENDS ${in} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/rename_definition.cmake)
+    get_filename_component(dir ${in} DIRECTORY)
+    set_source_files_properties(${out} PROPERTIES INCLUDE_DIRECTORIES "${dir};${SM64_DIR}/src")
+    target_sources(sm64 PRIVATE ${out})
+    get_target_property(srcs sm64 SOURCES)
+    list(REMOVE_ITEM srcs ${in})
+    set_target_properties(sm64 PROPERTIES SOURCES "${srcs}")
+endfunction()
+sm64_rename_definitions(decomp/game/interaction.c "check_kick_or_punch_wall=sm64_kick_or_punch_wall")
+sm64_rename_definitions(fake_interaction.c "fake_bounce_back_from_attack=sm64_fake_bounce_back")
+target_sources(sm64 PRIVATE src/core/blows.c)
 
 add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp src/core/actors.cpp src/core/attack.cpp src/core/particles.cpp src/core/puffs.cpp src/core/builder.cpp src/core/health.cpp)
 target_include_directories(sm64nv_core PUBLIC src)
