@@ -28,6 +28,9 @@ void keep_pad_hooked();
 bool hook_activate_sound(std::string &why);
 // how many of those clicks were kept quiet since the last call
 int take_hushed();
+// actors spare a player whose movement is off, as in a scene, but not mario's
+// false when the call it replaces is not the game's own
+bool hook_combat_check(std::string &why);
 // turns off the game's own movement and goes third person with the body hidden
 bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before

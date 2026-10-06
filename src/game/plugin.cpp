@@ -6,6 +6,7 @@
 #include "core/dds.h"
 #include "core/frame.h"
 #include "core/geo.h"
+#include "core/health.h"
 #include "core/mesh.h"
 #include "core/puffs.h"
 #include "core/reach.h"
@@ -338,6 +339,18 @@ const ScriptLine kParticlesScript[] = {
 const int kParticlesShots[] = {56, 90, 120};
 const ControlScript kParticles{kParticlesScript, {}, kParticlesShots, 135};
 const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
+// a coyote made beside mario is set on the courier, whose health is mario's
+const ScriptLine kHurtScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00168D08 1"}, {55, "actor SetRestrained 1"},
+    {60, "beside -85 0 90"}, {70, "actors 600"}, {75, "health"}, {80, "actor SetRestrained 0"}, {85, "actor StartCombat player"},
+    {150, "health"}, {150, "actors 600"}, {250, "health"}, {250, "actors 600"}, {350, "health"},
+};
+const ControlScript kHurt{kHurtScript, {}, {}, 360};
+// the courier dies while mario has him
+const ScriptLine kDeathScript[] = {
+    {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
+};
+const ControlScript kDeath{kDeathScript, {}, {}, 130};
 // the saloon: who is there, a doorway with a bare strip, a coyote without bounds
 const ScriptLine kSaloonScript[] = {
     {40, "actors 3000"}, {45, "player.SetAngle Z 0"}, {47, "mario -385 40 3456 0"}, {60, "spot south"},
@@ -431,6 +444,8 @@ std::vector<LiveActor> g_near;
 ActorStats g_actor_stats;
 Swing g_swing;
 Thrown g_thrown;
+HealthWatch g_health;
+uint16_t g_meter;
 LastFit g_fit;
 Trail g_trail;
 FixedStep g_step;
@@ -565,7 +580,8 @@ int count_refs(const fnv::TESObjectCELL *c) {
 }
 
 fnv::TESObjectCELL *settle_cell() {
-    if (g_frames == kMenuFrames && !g_config.cell.empty()) run_console("coc " + g_config.cell);
+    if (g_frames == kMenuFrames && !g_config.load.empty()) run_console("LoadGame " + g_config.load);
+    else if (g_frames == kMenuFrames && !g_config.cell.empty()) run_console("coc " + g_config.cell);
     if (g_frames <= kMenuFrames) return nullptr;
     fnv::TESObjectCELL *c = loaded_cell();
     g_settled = c ? g_settled + 1 : 0;
@@ -840,6 +856,7 @@ void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
     g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
+    g_health = {}, g_meter = 0;
 }
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
@@ -918,8 +935,8 @@ void release_control(const char *reason) {
     mario_mesh_hide();
     release_player(g_ctl.saved);
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
-    // a save load replaces what was put back so there is nothing to read back
-    g_ctl.restore_check = strcmp(reason, "load") ? g_ctl.tick + kRestoreTicks : 0;
+    // a save load replaces what was put back, and a death shows the body the game's way
+    g_ctl.restore_check = strcmp(reason, "load") && strcmp(reason, "dead") ? g_ctl.tick + kRestoreTicks : 0;
 }
 
 void check_restored() {
@@ -1041,6 +1058,31 @@ void land_blows(int t) {
     }
 }
 
+const int32_t kSoundAttacked = 0x240AFF81;
+
+void log_health(const char *what) {
+    fnv::TESObjectREFR *p = fnv::player();
+    // the meter is read back from libsm64 as it stood after the last tick
+    logf("hurt %s tick=%d health=%.1f max=%.1f meter=%03X standing=%d", what, g_ctl.tick, actor_health(p), actor_max_health(p),
+         g_sim.state.health, actor_standing(p));
+}
+
+// the courier's health is mario's meter, a wound is heard and his death lets the courier go
+void watch_health(int t) {
+    fnv::TESObjectREFR *p = fnv::player();
+    float health = actor_health(p), max = actor_max_health(p);
+    bool first = !g_health.primed();
+    HealthChange c = g_health.tick(health, actor_standing(p));
+    uint16_t meter = health_meter(health, max);
+    if (meter != g_meter) sm64_set_mario_health(g_sim.id, meter), g_meter = meter;
+    if (first) log_health("baseline");
+    if (c.lost > 0) {
+        logf("hurt tick=%d lost=%.1f health=%.1f max=%.1f meter=%03X", t, c.lost, health, max, meter);
+        sm64_play_sound_global(kSoundAttacked);
+    }
+    if (c.died) log_health("dead"), release_control("dead");
+}
+
 void log_actors(float reach) {
     ActorStats st;
     Vec3 m = mario_pos();
@@ -1113,6 +1155,7 @@ void control_tick() {
         g_trail.add(t, mario_pos(), g_sim.state.action, pad.forward, pad.right, pad.buttons);
         keep_fit(t);
         if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t), log_trail();
+        watch_health(t);
     }
     watch_look(t, cam);
     if (t == g_ctl.restore_check) check_restored();
@@ -1149,6 +1192,7 @@ void control_tick() {
         else if (!strcmp(line.line, "doors")) log_doors();
         else if (!strncmp(line.line, "open ", 5)) open_door(line.line + 5);
         else if (!strcmp(line.line, "puffs")) log_puffs();
+        else if (!strcmp(line.line, "health")) log_health("status");
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
         else if (!strcmp(line.line, "state")) {
@@ -1341,6 +1385,8 @@ void on_frame() {
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
+    else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
+    else if (g_config.scenario == "death") tick_control_scenario(kDeath);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
     else if (g_config.scenario == "prison") tick_control_scenario(kPrison);
@@ -1389,6 +1435,7 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvs
     if (!hook_pad(why)) return logf("refused: pad hook %s", why.c_str()), false;
     // without it mario still plays, the game just clicks at the activate key
     if (!hook_activate_sound(why)) logf("refused: activate sound hook %s", why.c_str());
+    if (!hook_combat_check(why)) logf("refused: combat hook %s", why.c_str());
     g_console = static_cast<const nvse::ConsoleInterface *>(nvse->queryInterface(nvse::kInterfaceConsole));
     auto *msg = static_cast<const nvse::MessagingInterface *>(nvse->queryInterface(nvse::kInterfaceMessaging));
     if (!msg || !msg->registerListener(g_handle, "NVSE", on_message)) {

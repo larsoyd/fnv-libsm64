@@ -265,6 +265,21 @@ bool hook_activate_sound(std::string &why) {
 
 int take_hushed() { return std::exchange(g_hushed, 0); }
 
+using ControlsOff = bool(__thiscall *)(void *, uint8_t);
+// where an actor picking its blow asks whether the player's movement is off
+const uintptr_t kCombatControlsCall = 0x008A04B2, kControlsOff = 0x005A03F0;
+
+bool __thiscall controls_off_for_combat(void *p, uint8_t mask) {
+    return !g_taken && reinterpret_cast<ControlsOff>(kControlsOff)(p, mask);
+}
+
+bool hook_combat_check(std::string &why) {
+    int32_t rel = (int32_t)(kControlsOff - (kCombatControlsCall + 5));
+    uint8_t expect[5] = {0xE8};
+    memcpy(expect + 1, &rel, 4);
+    return patch_call(kCombatControlsCall, expect, reinterpret_cast<void *>(&controls_off_for_combat), why);
+}
+
 bool take_player(const ControlState &courier, std::string &why) {
     fnv::TESObjectREFR *p = fnv::player();
     if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) why = "player vtbl";

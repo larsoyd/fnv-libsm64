@@ -23,8 +23,11 @@ std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 center, floa
 
 // how far the game has an actor knocked off its feet, 0 when it stands
 int knocked(fnv::TESObjectREFR *actor);
-// health as the game counts it
+// alive and on its feet, restrained counts, dying and dead do not
+bool actor_standing(const fnv::TESObjectREFR *actor);
+// health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
+float actor_max_health(fnv::TESObjectREFR *actor);
 // a bare handed blow by the player through the game's own hit handling
 // damage is what it does before armour, what the game made of it comes back
 float strike(fnv::TESObjectREFR *target, float damage);

@@ -51,6 +51,7 @@ Config parse_config(const std::string &text) {
         else if (key == "scale") ok = parse_float(value, c.scale);
         else if (key == "scenario") c.scenario = value;
         else if (key == "cell") c.cell = value;
+        else if (key == "load") c.load = value;
         else if (key == "frames") ok = parse_count(value, c.frames);
         else if (key == "autotake") ok = parse_flag(value, c.autotake);
         else if (key == "punch") ok = parse_float(value, c.punch);

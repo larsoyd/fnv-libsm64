@@ -11,6 +11,8 @@ struct Config {
     float scale = 1.5f;
     std::string scenario;
     std::string cell;
+    // a save to load instead of walking in from the main menu
+    std::string load;
     int frames = 0;
     bool autotake = false;
     // damage of one punch before the target's armour

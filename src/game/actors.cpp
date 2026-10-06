@@ -46,11 +46,6 @@ bool is_actor(const fnv::TESObjectREFR *ref) {
     return (vt == kVtblCharacter || vt == kVtblCreature) && ref->baseForm && ref->renderState && ref->renderState->niNode;
 }
 
-bool standing(const fnv::TESObjectREFR *ref) {
-    uint32_t life = at<uint32_t>(ref, 0x108);
-    return life == kAlive || life == kRestrained;
-}
-
 bool usable(const float size[3]) {
     return std::all_of(size, size + 3, [](float s) { return s >= kLeastSize && s <= kMostSize; });
 }
@@ -91,11 +86,20 @@ int knocked(fnv::TESObjectREFR *actor) {
     return fnv::vtbl_of(process) == kVtblHighProcess ? at<uint8_t>(process, 0x13C) : 0;
 }
 
-float actor_health(fnv::TESObjectREFR *actor) {
-    // the part of an actor that owns its values sits this far in
-    void *values = reinterpret_cast<uint8_t *>(actor) + 0xA4;
-    return virt<ActorValue>(values, 0x0C)(values, kHealth);
+bool actor_standing(const fnv::TESObjectREFR *actor) {
+    uint32_t life = at<uint32_t>(actor, 0x108);
+    return life == kAlive || life == kRestrained;
 }
+
+// the part of an actor that owns its values sits this far in, the slot picks current or base
+static float actor_value(fnv::TESObjectREFR *actor, size_t slot, uint32_t code) {
+    void *values = reinterpret_cast<uint8_t *>(actor) + 0xA4;
+    return virt<ActorValue>(values, slot)(values, code);
+}
+
+float actor_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x0C, kHealth); }
+
+float actor_max_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x04, kHealth); }
 
 float strike(fnv::TESObjectREFR *target, float damage) {
     void *hit = engine<Alloc>(0x00401000)(kHitSize);
@@ -133,7 +137,7 @@ std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 c, float rea
             stats.seen++;
             LiveActor a{ref, {ref->form.refID, {ref->pos[0], ref->pos[1], ref->pos[2]}, ref->rot[2], 0, 0, 0}, nullptr};
             if (apart(a, c) > reach) stats.away++;
-            else if (!standing(ref)) stats.down++;
+            else if (!actor_standing(ref)) stats.down++;
             else if (!(a.sized = sized(ref, a.body))) stats.unsized++;
             else out.push_back(a);
         }
