@@ -50,6 +50,21 @@ bool toggle_held(const uint8_t *keys, const GamepadState &pad);
 // e on the keyboard or y on the gamepad
 bool activate_held(const uint8_t *keys, const GamepadState &pad);
 
+// a thunk jump, through an import slot or straight to a function some plugin put there
+struct Jump {
+    bool through_slot;
+    uintptr_t to;
+};
+bool read_jump(const uint8_t *code, uintptr_t at, Jump &j);
+
+// xinput numbers each change of a pad, a read with the last number again is a copy
+// a plugin may serve it from the game's own buffer, where mario's share is already masked
+struct PacketGate {
+    uint32_t last = 0;
+    bool seen = false;
+    bool fresh(uint32_t packet);
+};
+
 struct Press {
     bool held = false;
     bool edge(bool down);

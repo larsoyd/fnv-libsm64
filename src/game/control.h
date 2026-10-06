@@ -22,6 +22,7 @@ float look_stick();
 std::string pad_mode();
 // while mario has the player the game is handed the pad without his buttons
 bool hook_pad(std::string &why);
+void keep_pad_hooked();
 // stops the game clicking at an activate key it cannot act on while mario plays
 // false when the call it replaces is not the game's own
 bool hook_activate_sound(std::string &why);

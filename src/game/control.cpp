@@ -16,8 +16,8 @@ namespace sm64nv {
 namespace {
 
 const uintptr_t kInputGlobals = 0x011F35CC;
-// the game's import of the call that reads a pad
-const uintptr_t kPadImport = 0x00FDF394;
+// the game reads a pad through this thunk, a jump the import slot or a plugin aims
+const uintptr_t kPadThunk = 0x009F996E, kPadImport = 0x00FDF394;
 const uintptr_t kOSGlobals = 0x011DEA0C;
 // the game's own setting for a player without collision, read by the player every frame
 // the console's toggle is for the whole game and stops anyone falling over while it is on
@@ -119,6 +119,7 @@ int g_hushed;
 PadRead g_read_pad;
 // the first pad as it really is
 GamepadState g_pad;
+PacketGate g_packets;
 
 // a, x and the triggers are mario's, the game would act on them or click at them
 // in a menu the game gets the whole pad
@@ -127,7 +128,7 @@ DWORD WINAPI read_pad_for_game(DWORD index, void *state) {
     if (failed || index) return failed;
     // the report follows a packet number
     auto *pad = reinterpret_cast<GamepadState *>(static_cast<uint8_t *>(state) + 4);
-    g_pad = *pad;
+    if (g_packets.fresh(*static_cast<uint32_t *>(state))) g_pad = *pad;
     if (g_taken && !reinterpret_cast<MenuMode>(0x00702360)()) *pad = game_share(g_pad);
     return failed;
 }
@@ -214,16 +215,44 @@ std::string pad_mode() {
            std::to_string(ui ? ui[0x7D] : -1) + " held_by=" + held;
 }
 
-bool hook_pad(std::string &why) {
-    auto *slot = reinterpret_cast<PadRead *>(kPadImport);
-    DWORD old;
-    if (!*slot || !VirtualProtect(slot, sizeof *slot, PAGE_READWRITE, &old)) {
-        why = "slot=" + hex(reinterpret_cast<uintptr_t>(*slot)) + " error=" + std::to_string(GetLastError());
+// what the thunk reaches now, ours when it already jumps to us
+bool pad_reader(uintptr_t &to, std::string &why) {
+    Jump j;
+    auto *site = reinterpret_cast<const uint8_t *>(kPadThunk);
+    if (!read_jump(site, kPadThunk, j) || (j.through_slot && j.to != kPadImport)) {
+        why = "thunk at " + hex(kPadThunk) + " is not a jump the game or a plugin made";
         return false;
     }
-    g_read_pad = *slot, *slot = &read_pad_for_game;
-    VirtualProtect(slot, sizeof *slot, old, &old);
+    to = j.through_slot ? *reinterpret_cast<uintptr_t *>(j.to) : j.to;
+    if (!to) why = "import slot empty";
+    return to != 0;
+}
+
+bool hook_pad(std::string &why) {
+    uintptr_t to;
+    if (!pad_reader(to, why)) return false;
+    if (to == reinterpret_cast<uintptr_t>(&read_pad_for_game)) return true;
+    auto *site = reinterpret_cast<uint8_t *>(kPadThunk);
+    DWORD old;
+    if (!VirtualProtect(site, 5, PAGE_EXECUTE_READWRITE, &old)) {
+        why = "protect error=" + std::to_string(GetLastError());
+        return false;
+    }
+    g_read_pad = reinterpret_cast<PadRead>(to);
+    int32_t rel = (int32_t)(reinterpret_cast<uintptr_t>(&read_pad_for_game) - (kPadThunk + 5));
+    site[0] = 0xE9;
+    memcpy(site + 1, &rel, 4);
+    VirtualProtect(site, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 5);
+    logf("control pad hook thunk=%08X reads_through=%08X", (unsigned)kPadThunk, (unsigned)to);
     return true;
+}
+
+// a plugin loaded after this one may put its jump over the thunk, then ours goes over that
+void keep_pad_hooked() {
+    static bool said;
+    std::string why;
+    if (!hook_pad(why) && !std::exchange(said, true)) logf("refused: pad rehook %s", why.c_str());
 }
 
 bool hook_activate_sound(std::string &why) {

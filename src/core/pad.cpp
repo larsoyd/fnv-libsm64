@@ -1,6 +1,7 @@
 #include "pad.h"
 
 #include <cmath>
+#include <cstring>
 
 namespace sm64nv {
 
@@ -41,10 +42,30 @@ bool toggle_held(const uint8_t *keys, const GamepadState &pad) { return down(key
 
 bool activate_held(const uint8_t *keys, const GamepadState &pad) { return down(keys, kKeyE) || (pad.buttons & kPadY); }
 
+bool PacketGate::fresh(uint32_t packet) {
+    bool fresh = !seen || packet != last;
+    last = packet, seen = true;
+    return fresh;
+}
+
 bool Press::edge(bool now) {
     bool fired = now && !held;
     held = now;
     return fired;
+}
+
+bool read_jump(const uint8_t *code, uintptr_t at, Jump &j) {
+    if (code[0] == 0xFF && code[1] == 0x25) {
+        uint32_t slot;
+        memcpy(&slot, code + 2, 4);
+        j = {true, slot};
+        return true;
+    }
+    if (code[0] != 0xE9) return false;
+    int32_t rel;
+    memcpy(&rel, code + 1, 4);
+    j = {false, at + 5 + rel};
+    return true;
 }
 
 GamepadState game_share(const GamepadState &g) {

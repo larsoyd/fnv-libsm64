@@ -1170,6 +1170,7 @@ void control_frame() {
     // the game lowers a player without collision, slowly and never far
     // he is placed higher by what he was found low the frame before
     if (g_ctl.placed) g_ctl.settle = std::clamp(g_ctl.settle + g_ctl.last.z - player_pos().z, -kSettleMost, kSettleMost);
+    keep_pad_hooked();
     Pad pad;
     bool toggle, activate;
     if (!read_game_pad(pad, toggle, activate)) return finish(false, "input_globals");
