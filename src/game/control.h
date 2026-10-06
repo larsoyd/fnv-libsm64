@@ -18,6 +18,8 @@ bool read_game_pad(Pad &pad, bool &toggle, bool &activate);
 bool hook_player_save(std::string &why);
 // how far the camera stick is pushed to the right, -1 to 1
 float look_stick();
+// the game's own pad in use flag, then whether its menus are on keys and mouse
+std::string pad_mode();
 // while mario has the player the game is handed the pad without his buttons
 bool hook_pad(std::string &why);
 // stops the game clicking at an activate key it cannot act on while mario plays

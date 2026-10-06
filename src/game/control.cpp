@@ -198,6 +198,12 @@ void grip(void *p) {
 
 float look_stick() { return g_pad.rx / 32767.0f; }
 
+std::string pad_mode() {
+    auto *ui = *reinterpret_cast<uint8_t **>(0x011D8A80);
+    return "pad_active=" + std::to_string(*reinterpret_cast<uint8_t *>(0x011F35C8)) + " keys_and_mouse=" +
+           std::to_string(ui ? ui[0x7D] : -1);
+}
+
 bool hook_pad(std::string &why) {
     auto *slot = reinterpret_cast<PadRead *>(kPadImport);
     DWORD old;

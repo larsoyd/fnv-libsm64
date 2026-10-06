@@ -988,8 +988,9 @@ void watch_look(int t, float cam) {
     bool pushed = std::fabs(look_stick()) > 0.5f;
     if (pushed && !g_ctl.look_from) g_ctl.look_from = t, g_ctl.look_cam = cam;
     if (pushed || !g_ctl.look_from) return;
-    logf("control look tick=%d ticks=%d turned=%.3f taken=%d blocked=%d", t, t - g_ctl.look_from,
-         std::remainder(cam - g_ctl.look_cam, 6.2831853f), taken(), g_ctl.blocked);
+    ControlState cs = control_state();
+    logf("control look tick=%d ticks=%d turned=%.3f taken=%d blocked=%d controls=%02X third=%d %s", t, t - g_ctl.look_from,
+         std::remainder(cam - g_ctl.look_cam, 6.2831853f), taken(), g_ctl.blocked, cs.controls, cs.third, pad_mode().c_str());
     g_ctl.look_from = 0;
 }
 
