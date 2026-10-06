@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <span>
+#include <utility>
 #include <vector>
 #include <windows.h>
 
@@ -18,8 +19,9 @@ const uintptr_t kInputGlobals = 0x011F35CC;
 // the game's own copy of the xinput state, the gamepad report follows the packet number
 const uintptr_t kGamepadState = 0x011F35A8 + 4;
 const uintptr_t kOSGlobals = 0x011DEA0C;
-// what the collision toggle sets on one reference, the game wide switch stops ragdolls too
-const uint32_t kNoCollision = 0x10;
+// the game's own setting for a player without collision, read by the player every frame
+// the console's toggle is for the whole game and stops anyone falling over while it is on
+const uintptr_t kPlayerCollision = 0x011E0B64, kPlayerCollisionName = 0x0108B9BC;
 const uintptr_t kSceneGraph = 0x011DEB7C;
 const uintptr_t kCameraZoom = 0x011E0B5C;
 const float kZoom = 250;
@@ -29,6 +31,8 @@ const float kChase = 250;
 const uintptr_t kPlayerSetPos = 0x00931620;
 const uintptr_t kPlayerSaveSlot = 0x0108AA90;
 const uintptr_t kPlayerSave = 0x009590F0;
+// where the activate key fetches its sound for nothing to use, and what it calls there
+const uintptr_t kNothingSoundCall = 0x009433B7, kNothingSound = 0x0082EC10;
 const uint32_t kHasKeyboard = 1 << 2;
 const uint8_t kBlockedControls = 0x01 | 0x08 | 0x10 | 0x40;
 
@@ -36,6 +40,7 @@ using SetControls = void(__thiscall *)(void *, bool, uint8_t);
 using ToggleFirstPerson = bool(__thiscall *)(void *, bool);
 using SetPos = void(__thiscall *)(void *, const Vec3 *);
 using SaveGame = void(__thiscall *)(void *, uint32_t);
+using SoundForm = void *(__cdecl *)();
 
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
 uintptr_t vslot(void *obj, size_t off) { return (*static_cast<uintptr_t **>(obj))[off / 4]; }
@@ -57,6 +62,9 @@ bool has_focus() {
 void *body() { return fnv::player()->renderState ? fnv::player()->renderState->niNode : nullptr; }
 
 void *chase_setting() { return reinterpret_cast<void *>(kChaseSetting); }
+
+// a setting keeps its value one word in and its name after that
+uint8_t &player_noclip() { return field<uint8_t>(reinterpret_cast<void *>(kPlayerCollision), 0x04); }
 
 bool culled(void *node) { return field<uint32_t>(node, 0x30) & 1; }
 
@@ -86,10 +94,8 @@ bool g_taken;
 // the save writes the control flags, pov and zoom so it gets the courier's
 void __thiscall save_player(void *p, uint32_t changed) {
     uint8_t controls = field<uint8_t>(p, 0x680), third = field<uint8_t>(p, 0x64A);
-    uint32_t flags = fnv::player()->form.flags;
     float zoom = *reinterpret_cast<float *>(kCameraZoom);
     if (g_taken) {
-        if (!g_courier.noclip) fnv::player()->form.flags &= ~kNoCollision;
         field<uint8_t>(p, 0x680) = controls & ~(kBlockedControls & ~g_courier.controls);
         field<uint8_t>(p, 0x64A) = g_courier.third;
         *reinterpret_cast<float *>(kCameraZoom) = g_courier.zoom;
@@ -97,8 +103,37 @@ void __thiscall save_player(void *p, uint32_t changed) {
     logf("save player taken=%d controls=%02X written=%02X", g_taken, controls, field<uint8_t>(p, 0x680));
     reinterpret_cast<SaveGame>(kPlayerSave)(p, changed);
     field<uint8_t>(p, 0x680) = controls, field<uint8_t>(p, 0x64A) = third;
-    fnv::player()->form.flags = flags;
     *reinterpret_cast<float *>(kCameraZoom) = zoom;
+}
+
+int g_hushed;
+
+// puts a call to ours over code that must read exactly as expected
+bool patch_call(uintptr_t at, std::span<const uint8_t> expect, void *to, std::string &why) {
+    auto *site = reinterpret_cast<uint8_t *>(at);
+    if (!std::equal(expect.begin(), expect.end(), site)) {
+        why = "code at " + hex(at) + " is not the game's own";
+        return false;
+    }
+    DWORD old;
+    if (!VirtualProtect(site, expect.size(), PAGE_EXECUTE_READWRITE, &old)) {
+        why = "protect error=" + std::to_string(GetLastError());
+        return false;
+    }
+    int32_t rel = (int32_t)(reinterpret_cast<uintptr_t>(to) - (at + 5));
+    site[0] = 0xE8;
+    memcpy(site + 1, &rel, 4);
+    memset(site + 5, 0x90, expect.size() - 5);
+    VirtualProtect(site, expect.size(), old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, expect.size());
+    return true;
+}
+
+// with movement off the game clicks at its activate key, which is the jump button on a pad
+void *__cdecl nothing_sound() {
+    if (!g_taken) return reinterpret_cast<SoundForm>(kNothingSound)();
+    g_hushed++;
+    return nullptr;
 }
 
 bool chase_setting_ok() {
@@ -134,24 +169,42 @@ bool hook_player_save(std::string &why) {
     return true;
 }
 
-bool take_player(const ControlState &courier, std::string &why) {
-    fnv::TESObjectREFR *p = fnv::player();
-    if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) why = "player vtbl";
-    else if (vslot(p, 0x2A8) != kPlayerSetPos) why = "player setpos slot";
-    else if (fnv::vtbl_of(body()) != fnv::kVtblBSFadeNode) why = "body vtbl=" + hex(fnv::vtbl_of(body()));
-    else if (!chase_setting_ok()) why = "chase setting vtbl=" + hex(fnv::vtbl_of(chase_setting()));
-    if (!why.empty()) return false;
+// the game's own movement off and the view behind the player, far enough back to see mario
+void grip(void *p) {
     reinterpret_cast<SetControls>(0x0095F530)(p, true, kBlockedControls);
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, false);
     // the switch leaves the camera at its 60 unit minimum which puts mario's cap in the lens
     *reinterpret_cast<float *>(kCameraZoom) = kZoom;
     // and the chase camera stops at 120 units which crops him
     field<float>(chase_setting(), 0x04) = kChase;
+}
+
+bool hook_activate_sound(std::string &why) {
+    // a call to the function that hands out the sound
+    int32_t rel = (int32_t)(kNothingSound - (kNothingSoundCall + 5));
+    uint8_t expect[5] = {0xE8};
+    memcpy(expect + 1, &rel, 4);
+    return patch_call(kNothingSoundCall, expect, reinterpret_cast<void *>(&nothing_sound), why);
+}
+
+int take_hushed() { return std::exchange(g_hushed, 0); }
+
+bool take_player(const ControlState &courier, std::string &why) {
+    fnv::TESObjectREFR *p = fnv::player();
+    if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) why = "player vtbl";
+    else if (vslot(p, 0x2A8) != kPlayerSetPos) why = "player setpos slot";
+    else if (fnv::vtbl_of(body()) != fnv::kVtblBSFadeNode) why = "body vtbl=" + hex(fnv::vtbl_of(body()));
+    else if (!chase_setting_ok()) why = "chase setting vtbl=" + hex(fnv::vtbl_of(chase_setting()));
+    else if (field<uintptr_t>(reinterpret_cast<void *>(kPlayerCollision), 0x08) != kPlayerCollisionName) why = "collision setting name";
+
+    if (!why.empty()) return false;
+    grip(p);
+    player_noclip() = 1;
     hide_body();
     g_courier = courier, g_taken = true;
     ControlState cs = control_state();
-    if ((cs.controls & kBlockedControls) == kBlockedControls && cs.hidden) return true;
-    why = "readback controls=" + hex(cs.controls) + " hidden=" + std::to_string(cs.hidden);
+    if ((cs.controls & kBlockedControls) == kBlockedControls && cs.hidden && cs.noclip) return true;
+    why = "readback controls=" + hex(cs.controls) + " hidden=" + std::to_string(cs.hidden) + " noclip=" + std::to_string(cs.noclip);
     return false;
 }
 
@@ -162,9 +215,17 @@ void release_player(const ControlState &saved) {
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, !saved.third);
     *reinterpret_cast<float *>(kCameraZoom) = saved.zoom;
     field<float>(chase_setting(), 0x04) = saved.chase;
+    player_noclip() = saved.noclip;
     // going back to first person culls the body again by itself
     if (body()) field<uint32_t>(body(), 0x30) &= ~1u;
     show_body();
+}
+
+bool hold_player() {
+    void *p = fnv::player();
+    if ((field<uint8_t>(p, 0x680) & kBlockedControls) == kBlockedControls && field<uint8_t>(p, 0x64A)) return false;
+    grip(p);
+    return true;
 }
 
 void *body_parent() { return body() ? field<void *>(body(), 0x18) : nullptr; }
@@ -201,7 +262,7 @@ bool camera_pos(Vec3 &out) {
 
 ControlState control_state() {
     void *p = fnv::player();
-    return {field<uint8_t>(p, 0x680), (fnv::player()->form.flags & kNoCollision) != 0, field<uint8_t>(p, 0x64A) != 0,
+    return {field<uint8_t>(p, 0x680), player_noclip() != 0, field<uint8_t>(p, 0x64A) != 0,
             body() && (culled(body()) || parts_hidden()), *reinterpret_cast<float *>(kCameraZoom),
             field<float>(chase_setting(), 0x04), has_focus(), os_globals() && field<uint8_t>(os_globals(), 0x03)};
 }

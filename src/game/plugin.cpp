@@ -6,6 +6,7 @@
 #include "core/frame.h"
 #include "core/geo.h"
 #include "core/mesh.h"
+#include "core/puffs.h"
 #include "core/reach.h"
 #include "core/regather.h"
 #include "core/rom.h"
@@ -25,6 +26,7 @@
 #include "game/render.h"
 #include "game/sound.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -64,8 +66,8 @@ const int kRenderRunTick = 80;
 const int kRenderTicks = 120;
 const Vec3 kLight{0.4f, -0.6f, 0.7f};
 const char *kTextureDirs[] = {"Data\\Textures", "Data\\Textures\\sm64nv"};
-// the loader looks under data for this
-const char *kTexturePath = "textures\\sm64nv\\mario.dds";
+// the loader looks under data for these
+const char *kTexturePath = "textures\\sm64nv\\mario.dds", *kPuffTexturePath = "textures\\sm64nv\\puffs.dds";
 const int kJumpFrom = 160, kJumpTo = 200;
 const int kControlShotTick = 262;
 const int kControlTicks = 280;
@@ -82,6 +84,8 @@ const uint32_t kActIdle = 0x0C400201;
 const float kStandDrop = 150;
 // frames between tries to stand mario in a new place, and how many before giving up
 const int kSeatEvery = 4, kSeatFrames = 600;
+// game units, the game lowers a player without collision by 17.5 at most
+const float kSettleMost = 25;
 // game units, actors this near mario are solid to him
 const float kActorReach = 600;
 
@@ -212,11 +216,12 @@ const ControlScript kTerminal{kTerminalScript, {}, kTerminalShots, 132};
 // out of the house by its door and straight back in by the door outside
 const ScriptLine kInoutScript[] = {
     {45, "mario 2380 1560 7360 90"}, {55, "HoldKey 18"}, {58, "ReleaseKey 18"},
-    {150, "state"}, {160, "doors"}, {162, "mario -73280 1297 8760 270"}, {185, "HoldKey 18"}, {188, "ReleaseKey 18"},
-    {280, "state"},
+    {175, "state"}, {185, "doors"}, {187, "mario -73280 1297 8760 270"}, {210, "HoldKey 18"}, {213, "ReleaseKey 18"},
+    {305, "state"},
 };
-const int kInoutShots[] = {155, 285};
-const ControlScript kInout{kInoutScript, {}, kInoutShots, 300};
+// the screen stays washed out for a few seconds after a door to the outside
+const int kInoutShots[] = {180, 310};
+const ControlScript kInout{kInoutScript, {}, kInoutShots, 325};
 
 #define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
 #define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
@@ -298,13 +303,21 @@ const ScriptLine kAttackScript[] = {
     {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "actor SetRestrained 1"},
     {60, "beside -85 0 270"}, {70, "actors 600"}, {75, "HoldKey 42"}, {77, "ReleaseKey 42"},
     {100, "beside -85 0 90"}, {105, "HoldKey 42"}, {107, "ReleaseKey 42"},
-    {120, "actors 600"}, {135, "actor SetRestrained 0"},
+    {112, "puffs"}, {120, "actors 600"}, {125, "puffs"}, {135, "actor SetRestrained 0"},
     {140, "beside -85 0 90"}, {150, "HoldKey 57"}, {153, "ReleaseKey 57"}, {156, "HoldKey 42"}, {158, "ReleaseKey 42"},
-    {165, "actors 600"}, {200, "actors 600"},
+    {165, "actors 600"}, {200, "actors 600"}, {205, "puffs"},
     {215, "beside -85 0 90"}, {220, "HoldKey 57"}, {223, "ReleaseKey 57"}, {228, "HoldKey 29"}, {232, "ReleaseKey 29"},
     {270, "actors 600"},
 };
 const int kAttackShots[] = {200};
+// a pound from a jump, then a run down the hall
+const ScriptLine kParticlesScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "mario 2202 1603.6 7360 90"}, {55, "puffs"},
+    {60, "HoldKey 57"}, {63, "ReleaseKey 57"}, {68, "HoldKey 29"}, {72, "ReleaseKey 29"}, {100, "puffs"},
+    {103, "mario 2120 1603.6 7360 90"}, {105, "HoldKey 17"}, {118, "puffs"}, {125, "ReleaseKey 17"},
+};
+const int kParticlesShots[] = {56, 90, 120};
+const ControlScript kParticles{kParticlesScript, {}, kParticlesShots, 135};
 const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
 
 const int kReleaseShots[] = {177};
@@ -351,7 +364,14 @@ Thrown g_thrown;
 LastFit g_fit;
 Trail g_trail;
 FixedStep g_step;
-MeshOut g_mesh, g_decal;
+MeshOut g_mesh, g_decal, g_puff_mesh;
+Particles g_particles;
+
+// how often mario has raised each effect since the last take
+struct PuffCounts {
+    int dust = 0, ring = 0, wall_stars = 0, ground_stars = 0, hits = 0;
+};
+PuffCounts g_puffs;
 
 struct Smooth {
     int frames = 0, hitches = 0;
@@ -363,6 +383,8 @@ struct Control {
     Smooth smooth;
     Vec3 last{}, move_from{};
     float jump_floor = 0, jump_peak = 0, max_gap = 0;
+    // how far under his placing the game has let the player sink
+    float settle = 0;
     int frames = 0, tick = 0, restore_check = 0;
     uint32_t action = 0;
     bool started = false, placed = false, blocked = false;
@@ -428,6 +450,12 @@ void on_post_load() {
     std::vector<uint8_t> dds = atlas_dds(g_texture.data());
     if (!write_file(path, dds)) return logf("refused: texture write path=%s", path.c_str());
     logf("texture written path=%s bytes=%u", path.c_str(), (unsigned)dds.size());
+    std::vector<uint8_t> puffs = puff_atlas(g_rom);
+    if (puffs.empty()) return logf("refused: rom holds no dust pictures where they should be");
+    path = g_dir + kTextureDirs[1] + "\\puffs.dds";
+    dds = rgba_dds(puffs.data(), kPuffAtlasWidth, kPuffCell, kPuffAtlasWidth);
+    if (!write_file(path, dds)) return logf("refused: texture write path=%s", path.c_str());
+    logf("texture written path=%s bytes=%u", path.c_str(), (unsigned)dds.size());
     g_ready = true;
 }
 
@@ -437,9 +465,8 @@ void finish(bool ok, const char *reason) {
     g_done = true;
 }
 
-// on a reference the line runs as if that one were picked in the console
-void run_console(const std::string &line, void *ref = nullptr) {
-    unsigned ret = g_console ? g_console->runScriptLine(line.c_str(), ref) : 0;
+void run_console(const std::string &line) {
+    unsigned ret = g_console ? g_console->runScriptLine(line.c_str(), nullptr) : 0;
     logf("console line=%s ok=%d ret=%u", line.c_str(), ret != 0, ret);
 }
 
@@ -584,6 +611,21 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
 
 Vec3 mario_pos() { return to_game(g_sim.frame, {g_sim.state.position[0], g_sim.state.position[1], g_sim.state.position[2]}); }
 
+// the dust and stars of this tick, counted by kind
+void raise_puffs(uint32_t flags) {
+    g_puffs.dust += (flags & kPuffDust) != 0, g_puffs.ring += (flags & kPuffRing) != 0;
+    g_puffs.wall_stars += (flags & kPuffWallStars) != 0, g_puffs.ground_stars += (flags & kPuffGroundStars) != 0;
+    g_puffs.hits += (flags & kPuffHit) != 0;
+    if (g_config.particles) g_particles.step(flags, g_ticks.cur_pos, g_sim.state.faceAngle);
+}
+
+void log_puffs() {
+    auto shards = std::ranges::count_if(g_particles.alive(), [](const Particle &p) { return p.model == Puff::shard; });
+    logf("particles tick=%d dust=%d ring=%d wall_stars=%d ground_stars=%d hits=%d alive=%u shards=%d drawn=%u", g_ctl.tick,
+         g_puffs.dust, g_puffs.ring, g_puffs.wall_stars, g_puffs.ground_stars, g_puffs.hits, (unsigned)g_particles.alive().size(),
+         (int)shards, g_puff_mesh.tris);
+}
+
 // whoever stands near mario this tick, as shapes he cannot walk through
 void sync_actors() {
     g_actor_stats = {};
@@ -599,6 +641,7 @@ void tick_mario(const SM64MarioInputs &in) {
     sync_actors();
     g_ticks.tick(g_sim.id, in, g_sim.state);
     g_sim.ticks++;
+    raise_puffs(g_sim.state.particleFlags);
 }
 
 void collide_tick() {
@@ -659,7 +702,11 @@ Vec3 draw_mario() {
     if (mario_mesh_follow(body_parent())) logf("mesh hung %s", mario_mesh_chain().c_str());
     convert_mesh(g_sim.frame, g_drawn.view(), m, kLight, g_mesh);
     convert_decal(g_sim.frame, g_drawn.view(), m, kLight, g_decal);
-    mario_mesh_update(g_mesh, g_decal, m);
+    Vec3 eye;
+    static const std::vector<Particle> kNone;
+    // with no camera to face there is nothing to draw them toward
+    build_puffs(g_sim.frame, camera_pos(eye) ? g_particles.alive() : kNone, alpha, eye, m, g_puff_mesh);
+    mario_mesh_update(g_mesh, g_decal, g_puff_mesh, m);
     return m;
 }
 
@@ -671,12 +718,12 @@ bool held() { return taken() || g_ctl.carry; }
 void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
-    g_boxes.clear(), g_near.clear(), g_thrown.clear();
+    g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
 }
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
     if (!start_mario(c, ahead, dump)) why = "mario_create";
-    else if (!mario_mesh_create(kTexturePath, why)) why = "mesh " + why;
+    else if (!mario_mesh_create(kTexturePath, kPuffTexturePath, why)) why = "mesh " + why;
     if (!why.empty()) drop_mario();
     frame_seconds();
     return why.empty();
@@ -731,15 +778,10 @@ void take_control() {
     focus_game();
     if (!sound_ready() && sound_open(why)) logf("sound open rate=%d", kAudioRate);
     else if (!sound_ready()) logf("sound unavailable reason=%s", why.c_str());
-    // on the player alone, the game wide toggle would leave nobody able to fall over
-    if (!control_state().noclip) run_console("tcl", fnv::player());
     // the camera aims at courier eye height so tilt it down onto mario
     run_console("player.SetAngle X 20");
     ControlState cs = control_state();
     logf("control take controls=%02X noclip=%d hidden=%d", cs.controls, cs.noclip, cs.hidden);
-    if (cs.noclip) return;
-    release_player(g_ctl.saved);
-    refuse_take("noclip");
 }
 
 // the last few seconds of what mario did, oldest first
@@ -751,10 +793,9 @@ void release_control(const char *reason) {
     // letting go by hand is often the way out of a bad spot, so say how he got there
     if (!strcmp(reason, "key")) log_trail();
     drop_mario();
-    g_ctl.placed = false, g_ctl.carry = 0;
+    g_ctl.placed = false, g_ctl.carry = 0, g_ctl.settle = 0;
     mario_mesh_hide();
     release_player(g_ctl.saved);
-    if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl", fnv::player());
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
     // a save load replaces what was put back so there is nothing to read back
     g_ctl.restore_check = strcmp(reason, "load") ? g_ctl.tick + kRestoreTicks : 0;
@@ -870,7 +911,12 @@ void land_blows(int t) {
         // libsm64 gives mario his own recoil and the sound of the hit
         Vec3 n = nearest_on(a.body, feet);
         Vec3 s = to_sm64(g_sim.frame, {n.x, n.y, a.body.feet.z});
-        sm64_mario_attack(g_sim.id, s.x, s.y, s.z, a.body.height * scale);
+        bool met = sm64_mario_attack(g_sim.id, s.x, s.y, s.z, a.body.height * scale);
+        // sm64 bursts shards off what a fist or a foot meets, the flag comes too late for this tick
+        if (met && (now == Attack::punch || now == Attack::kick)) {
+            g_puffs.hits++;
+            if (g_config.particles) g_particles.emit(kPuffHit, g_ticks.cur_pos, g_sim.state.faceAngle);
+        }
     }
 }
 
@@ -962,6 +1008,7 @@ void control_tick() {
         else if (!strcmp(line.line, "sound pause")) sound_pause();
         else if (!strcmp(line.line, "sound status")) log_sound_status();
         else if (!strcmp(line.line, "doors")) log_doors();
+        else if (!strcmp(line.line, "puffs")) log_puffs();
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
         else if (!strcmp(line.line, "state")) {
@@ -982,7 +1029,7 @@ void control_tick() {
     if (t % kStatusTicks == 0)
         logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X lib_msgs=%u", t, g_frames, taken(),
              g_ctl.blocked, xyz(m).c_str(), g_sim.state.action, (unsigned)g_lib_messages.total());
-    if (t % kStatusTicks == 0 && taken()) log_window("status");
+    if (t % kStatusTicks == 0 && taken()) log_window("status"), log_puffs();
     if (t % kStatusTicks == 0 && sound_ready()) log_sound_status();
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
@@ -1019,7 +1066,7 @@ float player_gap() {
 void carry_over(const char *reason) {
     drop_mario();
     mario_mesh_hide();
-    g_ctl.placed = false, g_ctl.carry = 1;
+    g_ctl.placed = false, g_ctl.carry = 1, g_ctl.settle = 0;
     logf("control carry tick=%d reason=%s from=%s", g_ctl.tick, reason, xyz(g_ctl.last).c_str());
 }
 
@@ -1070,6 +1117,9 @@ void seat_mario() {
 void control_frame() {
     if (taken()) follow_cell();
     if (g_ctl.placed) g_ctl.max_gap = std::fmax(g_ctl.max_gap, player_gap()), g_ctl.frames++;
+    // the game lowers a player without collision, slowly and never far
+    // he is placed higher by what he was found low the frame before
+    if (g_ctl.placed) g_ctl.settle = std::clamp(g_ctl.settle + g_ctl.last.z - player_pos().z, -kSettleMost, kSettleMost);
     Pad pad;
     bool toggle, activate;
     if (!read_game_pad(pad, toggle, activate)) return finish(false, "input_globals");
@@ -1077,7 +1127,10 @@ void control_frame() {
         logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_ctl.tick, pad.forward, pad.right,
              pad.buttons.a, pad.buttons.b, pad.buttons.z);
     g_ctl.pad = pad;
+    if (int n = take_hushed()) logf("control hush tick=%d count=%d", g_ctl.tick, n);
     bool blocked = menu_mode();
+    // in a menu the view is the game's to change
+    if (held() && !blocked && hold_player()) logf("control regrip tick=%d", g_ctl.tick);
     if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_ctl.tick, blocked, menu_mode());
     g_ctl.blocked = blocked;
     if (g_ctl.toggle.edge(toggle) && !blocked) held() ? release_control("key") : take_control();
@@ -1097,7 +1150,7 @@ void control_frame() {
     Vec3 drawn = draw_mario();
     if (in_move(g_ctl.tick)) track_smooth(std::hypot(drawn.x - g_ctl.last.x, drawn.y - g_ctl.last.y, drawn.z - g_ctl.last.z));
     g_ctl.last = drawn;
-    move_player(drawn);
+    move_player({drawn.x, drawn.y, drawn.z + g_ctl.settle});
     g_ctl.placed = true;
 }
 
@@ -1143,6 +1196,7 @@ void on_frame() {
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
+    else if (g_config.scenario == "particles" || g_config.scenario == "noparticles") tick_control_scenario(kParticles);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.started;
@@ -1183,6 +1237,8 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvs
     g_handle = nvse->getPluginHandle();
     std::string why;
     if (!hook_player_save(why)) return logf("refused: save hook %s", why.c_str()), false;
+    // without it mario still plays, the game just clicks at his jumps
+    if (!hook_activate_sound(why)) logf("refused: activate sound hook %s", why.c_str());
     g_console = static_cast<const nvse::ConsoleInterface *>(nvse->queryInterface(nvse::kInterfaceConsole));
     auto *msg = static_cast<const nvse::MessagingInterface *>(nvse->queryInterface(nvse::kInterfaceMessaging));
     if (!msg || !msg->registerListener(g_handle, "NVSE", on_message)) {

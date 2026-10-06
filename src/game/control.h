@@ -16,10 +16,17 @@ struct ControlState {
 bool read_game_pad(Pad &pad, bool &toggle, bool &activate);
 // saves keep the courier's state, false when the slot is not the game's own
 bool hook_player_save(std::string &why);
+// stops the game clicking at an activate key it cannot act on while mario plays
+// false when the call it replaces is not the game's own
+bool hook_activate_sound(std::string &why);
+// how many of those clicks were kept quiet since the last call
+int take_hushed();
 // turns off the game's own movement and goes third person with the body hidden
 bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before
 void release_player(const ControlState &saved);
+// a door gives the player his controls and view back, true when they were taken again
+bool hold_player();
 void move_player(Vec3 pos);
 // the node the courier's body hangs under, a room indoors where there are rooms
 void *body_parent();

@@ -40,8 +40,10 @@ struct Shape {
 };
 
 const uint8_t kUpdateData[12] = {};
-Shape g_body, g_decal;
-void *g_face_tex;
+Shape g_body, g_decal, g_puffs;
+void *g_face_tex, *g_puff_tex;
+// game units, mario stands about 110 tall and a ring of mist spreads this far from him
+const float kBodyBound = 120, kPuffBound = 400;
 
 void *ni_alloc(size_t n) { return engine<NiAlloc>(0xAA13E0)(n); }
 
@@ -92,7 +94,7 @@ void hang(Shape &s, void *parent) {
     virt<AddObject>(parent, 0xDC)(parent, s.shape, true);
 }
 
-void update_shape(Shape &s, const MeshOut &m, Vec3 world) {
+void update_shape(Shape &s, const MeshOut &m, Vec3 world, float bound) {
     void *parent = parent_of(s);
     if (!parent) return;
     memcpy(s.verts, m.pos.data(), kVerts * sizeof(Vec3));
@@ -100,25 +102,24 @@ void update_shape(Shape &s, const MeshOut &m, Vec3 world) {
     memcpy(s.colors, m.color.data(), kVerts * 4 * sizeof(float));
     if (s.uv) memcpy(s.uv, m.uv.data(), kVerts * 2 * sizeof(float));
     field<uint16_t>(s.data, 0x0E) |= 0x0F;
-    // bound center and radius, mario stands about 110 units tall
+    // bound center and radius
     field<float>(s.data, 0x10) = 0, field<float>(s.data, 0x14) = 0, field<float>(s.data, 0x18) = 60;
-    field<float>(s.data, 0x1C) = 120;
+    field<float>(s.data, 0x1C) = bound;
     Placing p = place_under(&field<float>(parent, 0x68), field<Vec3>(parent, 0x8C), field<float>(parent, 0x98), world);
     memcpy(&field<float>(s.shape, 0x34), p.rot, sizeof p.rot);
     field<Vec3>(s.shape, 0x58) = p.at, field<float>(s.shape, 0x64) = p.scale;
     virt<UpdateDownward>(s.shape, 0xA4)(s.shape, kUpdateData, 0);
 }
 
-bool load_texture(const char *path, std::string &why) {
+void *load_texture(const char *path, std::string &why) {
     void *tex = nullptr;
     engine<LoadTexture>(0x4568C0)(*reinterpret_cast<void **>(fnv::kTES), path, &tex, true, false);
     if (!rtti_is(tex, ".?AVNiSourceTexture@@")) {
         why = std::string("type=") + rtti_name(tex) + " path=" + path;
-        return false;
+        return nullptr;
     }
-    g_face_tex = tex;
     logf("texture loaded path=%s refs=%u", path, field<uint32_t>(tex, 0x04));
-    return true;
+    return tex;
 }
 
 void set_hidden(void *shape, bool hidden) {
@@ -128,32 +129,36 @@ void set_hidden(void *shape, bool hidden) {
 
 }
 
-bool mario_mesh_create(const char *texture, std::string &why) {
-    if (!g_face_tex && !load_texture(texture, why)) return false;
+bool mario_mesh_create(const char *texture, const char *puff_texture, std::string &why) {
+    if (!g_face_tex && !(g_face_tex = load_texture(texture, why))) return false;
+    if (!g_puff_tex && !(g_puff_tex = load_texture(puff_texture, why))) return false;
     if (g_body.shape) {
-        set_hidden(g_body.shape, false), set_hidden(g_decal.shape, false);
+        for (Shape *s : {&g_body, &g_decal, &g_puffs}) set_hidden(s->shape, false);
         logf("mesh shown");
         return true;
     }
     g_body = make_shape(nullptr);
     g_decal = make_shape(g_face_tex);
+    g_puffs = make_shape(g_puff_tex);
     logf("mesh created shape=%s decal=%s", rtti_name(g_body.shape), rtti_name(g_decal.shape));
     return true;
 }
 
 bool mario_mesh_follow(void *parent) {
     if (!g_body.shape || !is_ni_node(parent) || parent_of(g_body) == parent) return false;
-    hang(g_body, parent), hang(g_decal, parent);
+    for (Shape *s : {&g_body, &g_decal, &g_puffs}) hang(*s, parent);
     return true;
 }
 
-void mario_mesh_update(const MeshOut &body, const MeshOut &decal, Vec3 world) {
-    update_shape(g_body, body, world);
-    update_shape(g_decal, decal, world);
+void mario_mesh_update(const MeshOut &body, const MeshOut &decal, const MeshOut &puffs, Vec3 world) {
+    update_shape(g_body, body, world, kBodyBound);
+    update_shape(g_decal, decal, world, kBodyBound);
+    update_shape(g_puffs, puffs, world, kPuffBound);
 }
 
 void mario_mesh_hide() {
-    if (g_body.shape) set_hidden(g_body.shape, true), set_hidden(g_decal.shape, true);
+    if (!g_body.shape) return;
+    for (Shape *s : {&g_body, &g_decal, &g_puffs}) set_hidden(s->shape, true);
 }
 
 std::string node_chain(void *node) {
