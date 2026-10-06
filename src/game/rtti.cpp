@@ -1,4 +1,5 @@
 #include "game/rtti.h"
+#include "game/fnv.h"
 
 #include <cstdint>
 #include <cstring>
@@ -7,6 +8,8 @@ namespace sm64nv {
 
 static const uintptr_t kRdataLo = 0x00FDF000, kRdataHi = 0x0118204C;
 static const uintptr_t kDataLo = 0x01183000, kDataHi = 0x01271A9C;
+// vtable slot of the cast to a node, one shared function for every class built on NiNode
+static const uintptr_t kNodeCast = 12;
 
 // compared this way round so a pointer near the top of memory cannot wrap past the end
 static bool in_rdata(uintptr_t p, uintptr_t n) { return p >= kRdataLo && p <= kRdataHi - n; }
@@ -26,6 +29,12 @@ static const char *type_name(uintptr_t td) { return in_data(td, 12) ? reinterpre
 const char *rtti_name(const void *obj) {
     uintptr_t col = locator_of(obj);
     return col ? type_name(word(col + 12)) : "";
+}
+
+bool is_ni_node(const void *obj) {
+    if (!obj) return false;
+    uintptr_t vt = word(reinterpret_cast<uintptr_t>(obj));
+    return in_rdata(vt, kNodeCast + 4) && word(vt + kNodeCast) == word(fnv::kVtblNiNode + kNodeCast);
 }
 
 bool rtti_is(const void *obj, const char *name) {

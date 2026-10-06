@@ -9,14 +9,14 @@
 namespace sm64nv {
 
 struct CollisionStats {
-    int cells = 0, refs = 0, bodies = 0;
+    int cells = 0, refs = 0, bodies = 0, keyframed = 0;
     // quarters of a cell's ground and how far the worst sits from where it is drawn
     int land_quads = 0;
     float land_max_err = 0;
     std::map<std::string, int> skipped_types;
     std::map<int, int> skipped_layers;
     int scale_samples = 0;
-    float scale_max_err = 0;
+    float scale_max_err = 0, turn_max_err = 0;
     Vec3 scale_worst_node{}, scale_worst_body{};
 };
 

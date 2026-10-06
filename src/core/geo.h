@@ -25,6 +25,8 @@ struct MarioTicks {
     int count = 0;
     void tick(int32_t id, const SM64MarioInputs &in, SM64MarioState &state);
     void reset(Vec3 spawn);
+    // moves him after a tick, as if that tick had ended there
+    void put_back(int32_t id, Vec3 pos, SM64MarioState &state);
     Vec3 pos(float alpha) const;
     void draw(float alpha, Geo &out) const;
 };

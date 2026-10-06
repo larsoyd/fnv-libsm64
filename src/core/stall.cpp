@@ -15,4 +15,10 @@ bool StallWatch::feed(Vec3 pos, float stick) {
     return reported_ = true;
 }
 
+int LastFit::feed(Vec3 pos, float room) {
+    if (room >= kHeight) pos_ = pos, known_ = true, low_ = 0;
+    else if (known_) low_++;
+    return low_;
+}
+
 }

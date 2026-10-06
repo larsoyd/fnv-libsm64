@@ -39,6 +39,12 @@ void MarioTicks::reset(Vec3 spawn) {
     prev_pos = cur_pos = spawn;
 }
 
+void MarioTicks::put_back(int32_t id, Vec3 pos, SM64MarioState &state) {
+    sm64_set_mario_position(id, pos.x, pos.y, pos.z);
+    state.position[0] = pos.x, state.position[1] = pos.y, state.position[2] = pos.z;
+    cur_pos = pos;
+}
+
 Vec3 MarioTicks::pos(float alpha) const { return lerp(prev_pos, cur_pos, alpha); }
 
 void MarioTicks::draw(float alpha, Geo &out) const { blend_geo(prev, cur, alpha, out); }

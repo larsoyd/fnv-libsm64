@@ -10,6 +10,7 @@
 #include "core/stall.h"
 #include "core/step.h"
 #include "core/surfaces.h"
+#include "core/trail.h"
 #include "core/walls.h"
 #include "core/window.h"
 #include "game/collision.h"
@@ -49,6 +50,8 @@ const float kFaceReach = 200;
 const float kStallRange = 80;
 const size_t kStallFaces = 8;
 const float kMaxScaleErr = 0.5f;
+// largest gap allowed in any entry between a body's rotation and its node's
+const float kMaxTurnErr = 0.05f;
 const float kMaxLandErr = 1;
 const int kLandTicks = 90;
 const int kRunTicks = 60;
@@ -68,6 +71,8 @@ const int kControlTicks = 280;
 const int kRestoreTicks = 10;
 // about as far as the courier reaches with the activate key
 const float kDoorReach = 150;
+// how long a used door swings and how often the world is gathered again meanwhile
+const int kDoorSwingTicks = 60, kDoorLookTicks = 15;
 
 struct ScriptLine {
     int tick;
@@ -143,16 +148,16 @@ const ScriptLine kDoorScript[] = {
 };
 const int kDoorShots[] = {200};
 const ControlScript kDoor{kDoorScript, {}, kDoorShots, 300};
-// out of the house, a run east down the hill, west over a cell border, then a jump
+// out of the house, a run east down the hill, along the road over a cell border, then a jump
 const ScriptLine kOutsideScript[] = {
     {45, "mario 2380 1560 7360 90"}, {55, "HoldKey 18"}, {58, "ReleaseKey 18"},
     {150, "player.SetAngle Z 90"}, {160, "HoldKey 17"}, {230, "ReleaseKey 17"}, {240, "spot east"},
-    {245, "player.SetAngle Z 270"}, {247, "mario -73162.9 1302.4 8695 270"}, {255, "HoldKey 17"}, {300, "ReleaseKey 17"},
-    {310, "spot west"},
-    {315, "player.SetPos X -71466.1"}, {315, "player.SetPos Y 1308.6"}, {315, "player.SetPos Z 8340"}, {400, "spot jumped"},
+    {245, "player.SetAngle Z 106.5"}, {247, "mario -70000 2320 8400 106.5"}, {262, "HoldKey 17"}, {307, "ReleaseKey 17"},
+    {317, "spot border"},
+    {322, "player.SetPos X -71466.1"}, {322, "player.SetPos Y 1308.6"}, {322, "player.SetPos Z 8340"}, {407, "spot jumped"},
 };
-const Move kOutsideMoves[] = {{"east", 160, 230}, {"west", 255, 300}};
-const ControlScript kOutside{kOutsideScript, kOutsideMoves, {}, 410};
+const Move kOutsideMoves[] = {{"east", 160, 230}, {"border", 262, 307}};
+const ControlScript kOutside{kOutsideScript, kOutsideMoves, {}, 417};
 
 #define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
 #define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
@@ -192,6 +197,14 @@ const ScriptLine kTableScript[] = {
     {125, "HoldKey 17"}, {137, "ReleaseKey 17"}, {142, "spot table_c"},
 };
 const ControlScript kTable{kTableScript, {}, {}, 150};
+// into the oven, into the shut bathroom door, then through it once e has swung it open
+const ScriptLine kSolidScript[] = {
+    {40, "player.SetAngle Z 0"}, {45, "mario 1071.8 1010.5 7360 0"}, {55, "HoldKey 17"}, {95, "ReleaseKey 17"}, {105, "spot oven"},
+    {110, "player.SetAngle Z 90"}, {115, "mario 1542.5 832.7 7360 90"}, {125, "HoldKey 17"}, {165, "ReleaseKey 17"},
+    {175, "spot door_shut"}, {180, "HoldKey 18"}, {183, "ReleaseKey 18"},
+    {260, "HoldKey 17"}, {300, "ReleaseKey 17"}, {310, "spot door_open"},
+};
+const ControlScript kSolid{kSolidScript, {}, {}, 320};
 // holds the sound device to see the stall recovery bring the stream back for the next jump
 const ScriptLine kSoundScript[] = {
     {40, "HoldKey 57"}, {43, "ReleaseKey 57"}, {70, "sound pause"}, {105, "sound status"},
@@ -236,7 +249,7 @@ struct Sim {
     fnv::TESObjectCELL *cell = nullptr;
     Vec3 gathered{};
     int32_t id = -1;
-    int ticks = 0;
+    int ticks = 0, swing_until = -1;
     SM64MarioState state{};
     Vec3 run_start{}, run_mid{};
     float floor_z = 0, min_z = 0;
@@ -247,6 +260,8 @@ std::vector<uint32_t> g_owners;
 uint32_t g_solid;
 uint32_t g_window_loads;
 StallWatch g_stall;
+LastFit g_fit;
+Trail g_trail;
 FixedStep g_step;
 MeshOut g_mesh, g_decal;
 
@@ -379,6 +394,7 @@ void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss
     logf("havok scale samples=%d max_err=%.3f node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale_samples,
          st.scale_max_err, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z, st.scale_worst_body.x,
          st.scale_worst_body.y, st.scale_worst_body.z);
+    logf("havok turn samples=%d max_err=%.4f keyframed=%d", st.scale_samples, st.turn_max_err, st.keyframed);
     if (st.land_quads) logf("collision land cells=%d quads=%d max_err=%.3f", st.cells, st.land_quads, st.land_max_err);
     for (const auto &[name, n] : st.skipped_types) logf("collision skipped type=%s count=%d", name.c_str(), n);
     for (const auto &[layer, n] : st.skipped_layers) logf("collision skipped layer=%d count=%d", layer, n);
@@ -409,6 +425,10 @@ size_t gather_world(Vec3 center, bool first) {
         logf("refused: havok scale samples=%d max_err=%.3f limit=%.1f", st.scale_samples, st.scale_max_err, kMaxScaleErr);
         return 0;
     }
+    if (st.turn_max_err > kMaxTurnErr) {
+        logf("refused: havok turn samples=%d max_err=%.4f limit=%.2f", st.scale_samples, st.turn_max_err, kMaxTurnErr);
+        return 0;
+    }
     if (st.land_max_err > kMaxLandErr) {
         logf("refused: land quads=%d max_err=%.3f limit=%.1f", st.land_quads, st.land_max_err, kMaxLandErr);
         return 0;
@@ -423,7 +443,9 @@ size_t gather_world(Vec3 center, bool first) {
 void regather_when_far() {
     Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos), c = g_sim.gathered;
     float moved = std::hypot(m.x - c.x, m.y - c.y, m.z - c.z);
-    if (moved <= kRegatherMove) return;
+    // what was gathered still has a door he just used where it was
+    bool swinging = g_sim.ticks <= g_sim.swing_until && (g_sim.swing_until - g_sim.ticks) % kDoorLookTicks == 0;
+    if (moved <= kRegatherMove && !swinging) return;
     double t0 = seconds_now();
     size_t tris = gather_world(m, false);
     logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u", g_sim.ticks, moved, (seconds_now() - t0) * 1000, tris != 0,
@@ -438,7 +460,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     g_sim.cell = cell;
     if (!gather_world(at, true)) return false;
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
-    g_window_loads = 0, g_stall = {};
+    g_window_loads = 0, g_stall = {}, g_fit = {}, g_trail.clear();
     sync_window(s);
     log_window("spawn");
     g_sim.id = sm64_mario_create(s.x, s.y, s.z);
@@ -593,7 +615,14 @@ void take_control() {
     refuse_take("noclip");
 }
 
+// the last few seconds of what mario did, oldest first
+void log_trail() {
+    for (const std::string &line : g_trail.lines()) logf("trail %s", line.c_str());
+}
+
 void release_control(const char *reason) {
+    // letting go by hand is often the way out of a bad spot, so say how he got there
+    if (!strcmp(reason, "key")) log_trail();
     drop_mario();
     g_ctl.placed = false;
     mario_mesh_hide();
@@ -630,6 +659,20 @@ void log_stall(int t) {
     }
 }
 
+// nothing lets mario in where he does not fit, so there he was pushed and he goes back
+void keep_fit(int t) {
+    Vec3 at = mario_pos();
+    float room = g_window.headroom(g_ticks.cur_pos);
+    int was = g_fit.low(), low = g_fit.feed(g_ticks.cur_pos, room);
+    if (!low && was) logf("unstuck tick=%d ticks=%d pos=%s", t, was, xyz(at).c_str());
+    if (!low) return;
+    g_ticks.put_back(g_sim.id, g_fit.pos(), g_sim.state);
+    if (low > 1) return;
+    logf("stuck tick=%d pos=%s action=%08X room=%.1f needs=%.1f back=%s", t, xyz(at).c_str(), g_sim.state.action,
+         room / g_sim.frame.scale, LastFit::kHeight / g_sim.frame.scale, xyz(mario_pos()).c_str());
+    log_trail();
+}
+
 void teleport_mario(const char *args) {
     Vec3 g;
     float deg;
@@ -639,7 +682,7 @@ void teleport_mario(const char *args) {
     sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(deg * 3.14159265f / 180));
     sm64_set_mario_velocity(g_sim.id, 0, 0, 0);
     sm64_set_mario_forward_velocity(g_sim.id, 0);
-    g_ticks.reset(s);
+    g_ticks.reset(s), g_fit = {};
     logf("control teleport tick=%d to=%s heading=%.1f", g_ctl.tick, xyz(g).c_str(), deg);
 }
 
@@ -686,6 +729,7 @@ void use_door() {
     logf("control door tick=%d ref=%08X teleports=%d dist=%.1f", g_ctl.tick, d.ref->form.refID, d.teleports,
          std::hypot(d.pos.x - m.x, d.pos.y - m.y, d.pos.z - m.z));
     logf("control activated ref=%08X ok=%d", d.ref->form.refID, activate(d.ref));
+    if (!d.teleports) g_sim.swing_until = g_sim.ticks + kDoorSwingTicks;
 }
 
 void control_tick() {
@@ -696,7 +740,9 @@ void control_tick() {
         // menus and the console still see the keys, mario must not
         Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
         tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
-        if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t);
+        g_trail.add(t, mario_pos(), g_sim.state.action, pad.forward, pad.right, pad.buttons);
+        keep_fit(t);
+        if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t), log_trail();
     }
     if (t == g_ctl.restore_check) check_restored();
     Vec3 m = taken() ? mario_pos() : player_pos();
@@ -856,6 +902,7 @@ void on_frame() {
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
     else if (g_config.scenario == "table") tick_control_scenario(kTable);
+    else if (g_config.scenario == "solid") tick_control_scenario(kSolid);
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);

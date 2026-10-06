@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 namespace sm64nv {
 
@@ -14,6 +15,8 @@ namespace {
 
 // node and body positions agree on this ratio to five digits, plain 7 is off by 1 in 8000
 const float kHavokToGame = 1 / 0.142875f;
+// the transform a body points at sits this far into its motion
+const int kMotionState = 0x10;
 const int kMaxHullPoints = 64;
 const float kCellSize = 4096;
 // each quarter of a cell's ground is this many points a side
@@ -50,6 +53,19 @@ Xf compose(const Xf &outer, const Xf &inner) {
 
 // hkTransform is three rotation columns then the translation, each a four float vector
 Xf hk_transform(const void *p) { return {vec_at(p, 0), vec_at(p, 16), vec_at(p, 32), vec_at(p, 48)}; }
+
+// a node keeps its world rotation as three rows, then its place in game units
+Xf node_transform(const void *node) {
+    Vec3 r0 = vec_at(node, 0x68), r1 = vec_at(node, 0x74), r2 = vec_at(node, 0x80), t = vec_at(node, 0x8C);
+    return {{r0.x, r1.x, r2.x}, {r0.y, r1.y, r2.y}, {r0.z, r1.z, r2.z}, {t.x / kHavokToGame, t.y / kHavokToGame, t.z / kHavokToGame}};
+}
+
+float turn_error(const Xf &a, const Xf &b) {
+    float err = 0;
+    for (auto [p, q] : {std::pair{a.c0, b.c0}, {a.c1, b.c1}, {a.c2, b.c2}})
+        err = std::max({err, std::fabs(p.x - q.x), std::fabs(p.y - q.y), std::fabs(p.z - q.z)});
+    return err;
+}
 
 struct Walker {
     Vec3 lo, hi;
@@ -145,11 +161,19 @@ struct Walker {
         if (!motion) return;
         Xf xf = hk_transform(motion);
         stats.bodies++;
-        if (!strcmp(rtti_name(world_obj), ".?AVbhkRigidBody@@")) {
-            Vec3 node_t = vec_at(at<const void *>(collision_object, 0x08), 0x8C);
+        const void *node = at<const void *>(collision_object, 0x08);
+        bool plain = !strcmp(rtti_name(world_obj), ".?AVbhkRigidBody@@");
+        // havok leaves a keyframed body where it was while collision is off, its node still moves
+        // fixed motion is built on the keyframed class, so the name has to match exactly
+        if (plain && !strcmp(rtti_name(static_cast<const uint8_t *>(motion) - kMotionState), ".?AVhkpKeyframedRigidMotion@@")) {
+            xf = node_transform(node);
+            stats.keyframed++;
+        } else if (plain) {
+            Vec3 node_t = vec_at(node, 0x8C);
             float err = std::fabs(node_t.x - xf.t.x * kHavokToGame) + std::fabs(node_t.y - xf.t.y * kHavokToGame) +
                         std::fabs(node_t.z - xf.t.z * kHavokToGame);
             stats.scale_samples++;
+            stats.turn_max_err = std::fmax(stats.turn_max_err, turn_error(node_transform(node), xf));
             if (err > stats.scale_max_err) {
                 stats.scale_max_err = err;
                 stats.scale_worst_node = node_t;
@@ -203,7 +227,8 @@ struct Walker {
     void node(const void *av, int depth) {
         if (depth > 32) return;
         if (const void *co = at<const void *>(av, 0x1C)) body(co);
-        if (!rtti_is(av, ".?AVNiNode@@")) return;
+        // the root of a placed model has no rtti, and its children hold most of the collision
+        if (!is_ni_node(av)) return;
         const void *const *children = at<const void *const *>(av, 0xA0);
         for (int i = 0, n = at<uint16_t>(av, 0xA6); i < n; i++)
             if (children[i]) node(children[i], depth + 1);
