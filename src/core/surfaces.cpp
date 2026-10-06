@@ -11,7 +11,7 @@ static const float kNearlyUpright = 0.2f;
 std::vector<Tri> quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d) { return {{a, b, c}, {a, c, d}}; }
 
 std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &tris, SurfaceStats &stats,
-                                        std::vector<uint32_t> *owners) {
+                                        std::vector<uint32_t> *kept) {
     std::vector<SM64Surface> out;
     out.reserve(tris.size());
     for (const Tri &t : tris) {
@@ -36,7 +36,7 @@ std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &
         else if (n.y < -0.01f) stats.ceilings++;
         else stats.walls++;
         out.push_back(s);
-        if (owners) owners->push_back(t.owner);
+        if (kept) kept->push_back(uint32_t(&t - tris.data()));
     }
     return out;
 }

@@ -10,6 +10,8 @@ namespace {
 
 // floors up to 78 over his feet still count as under him
 const float kEyeHeight = 80;
+// walls wholly under his feet or over his head keep their side
+const float kHeight = 160;
 
 // distance to the box around the surface, height only counts when asked
 float box_distance(const SM64Surface &s, Vec3 p, bool height) {
@@ -25,6 +27,12 @@ float box_distance(const SM64Surface &s, Vec3 p, bool height) {
     return std::sqrt(sum);
 }
 
+bool spans(const SM64Surface &s, float lo, float hi) {
+    int a = std::min({s.vertices[0][1], s.vertices[1][1], s.vertices[2][1]});
+    int b = std::max({s.vertices[0][1], s.vertices[1][1], s.vertices[2][1]});
+    return b > lo && a < hi;
+}
+
 bool faces_away(const SM64Surface &s, Vec3 p) {
     Vec3 n = surface_normal(s);
     const auto &v = s.vertices[0];
@@ -33,8 +41,8 @@ bool faces_away(const SM64Surface &s, Vec3 p) {
 
 }
 
-SurfaceWindow::SurfaceWindow(std::vector<SM64Surface> world, float radius, float reach)
-    : world_(std::move(world)), radius_(radius), reach_(reach) {}
+SurfaceWindow::SurfaceWindow(std::vector<SM64Surface> world, float radius, float reach, std::vector<bool> fixed)
+    : world_(std::move(world)), fixed_(std::move(fixed)), radius_(radius), reach_(reach) {}
 
 std::vector<size_t> SurfaceWindow::nearby(Vec3 p, float range) const {
     std::vector<size_t> out;
@@ -53,8 +61,11 @@ bool SurfaceWindow::update(Vec3 feet) {
         stats.gathers++;
     }
     Vec3 eye{feet.x, feet.y + kEyeHeight, feet.z};
-    for (SM64Surface &s : loaded_) {
+    for (size_t i = 0; i < loaded_.size(); i++) {
+        SM64Surface &s = loaded_[i];
+        if (!fixed_.empty() && fixed_[source_[i]]) continue;
         if (box_distance(s, feet, false) > reach_ || !faces_away(s, eye)) continue;
+        if (std::fabs(surface_normal(s).y) <= 0.01f && !spans(s, feet.y + 1, feet.y + kHeight)) continue;
         std::swap(s.vertices[1], s.vertices[2]);
         stats.flips++, changed = true;
     }

@@ -14,7 +14,8 @@ struct WindowStats {
 class SurfaceWindow {
 public:
     // sm64 units measured across the ground plane, so floors far below still count
-    SurfaceWindow(std::vector<SM64Surface> world, float radius, float reach);
+    // fixed marks surfaces of closed shapes that already face out and never turn
+    SurfaceWindow(std::vector<SM64Surface> world, float radius, float reach, std::vector<bool> fixed = {});
     // true when the loaded set changed and libsm64 needs it again
     bool update(Vec3 feet);
     const std::vector<SM64Surface> &loaded() const { return loaded_; }
@@ -26,6 +27,7 @@ public:
 private:
     std::vector<SM64Surface> world_, loaded_;
     std::vector<uint32_t> source_;
+    std::vector<bool> fixed_;
     float radius_, reach_;
     Vec3 center_{};
     bool valid_ = false;

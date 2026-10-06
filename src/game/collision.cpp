@@ -56,14 +56,12 @@ struct Walker {
         return {p.x * kHavokToGame, p.y * kHavokToGame, p.z * kHavokToGame};
     }
 
-    void keep(Vec3 a, Vec3 b, Vec3 c) {
-        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c, owner});
+    void keep(Vec3 a, Vec3 b, Vec3 c, bool solid = false) {
+        if (inside(a) || inside(b) || inside(c)) out.push_back({a, b, c, owner, solid});
     }
 
-    void emit(const Xf &xf, Vec3 a, Vec3 b, Vec3 c) { keep(to_game(xf, a), to_game(xf, b), to_game(xf, c)); }
-
     void emit_all(const Xf &xf, const std::vector<Tri> &tris) {
-        for (const Tri &t : tris) emit(xf, t.a, t.b, t.c);
+        for (const Tri &t : tris) keep(to_game(xf, t.a), to_game(xf, t.b), to_game(xf, t.c), t.solid);
     }
 
     void packed_strips(const void *s, const Xf &xf) {

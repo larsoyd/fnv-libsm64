@@ -42,7 +42,7 @@ static void fan_face(const std::vector<Vec3> &pts, Plane pl, float eps, std::vec
     std::sort(face.begin(), face.end(), [&](Vec3 a, Vec3 b) {
         return std::atan2(dot(sub(a, c), v), dot(sub(a, c), u)) < std::atan2(dot(sub(b, c), v), dot(sub(b, c), u));
     });
-    for (size_t m = 1; m + 1 < face.size(); m++) out.push_back({face[0], face[m], face[m + 1]});
+    for (size_t m = 1; m + 1 < face.size(); m++) out.push_back({face[0], face[m], face[m + 1], 0, true});
 }
 
 std::vector<Tri> convex_hull(const std::vector<Vec3> &pts) {

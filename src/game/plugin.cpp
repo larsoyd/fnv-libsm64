@@ -147,6 +147,14 @@ const ScriptLine kSteepScript[] = {
     {250, "spot steep_out"},
 };
 const ControlScript kSteep{kSteepScript, {}, {}, 260};
+// walks off the round table in the west room from three spots on its top
+const ScriptLine kTableScript[] = {
+    {40, "player.SetAngle Z 0"}, {45, "mario 1189.8 882.7 7416.3 0"}, {55, "HoldKey 17"}, {67, "ReleaseKey 17"},
+    {72, "spot table_a"}, {75, "player.SetAngle Z 45"}, {80, "mario 1200 863.7 7416.3 45"}, {90, "HoldKey 17"},
+    {102, "ReleaseKey 17"}, {107, "spot table_b"}, {110, "player.SetAngle Z 247.5"}, {115, "mario 1110 933.7 7416.3 247.5"},
+    {125, "HoldKey 17"}, {137, "ReleaseKey 17"}, {142, "spot table_c"},
+};
+const ControlScript kTable{kTableScript, {}, {}, 150};
 
 // tab opens the pip-boy and closes it again
 const ScriptLine kPipboyScript[] = {
@@ -184,6 +192,7 @@ struct Sim {
 Sim g_sim;
 SurfaceWindow g_window{{}, 0, 0};
 std::vector<uint32_t> g_owners;
+uint32_t g_solid;
 uint32_t g_window_loads;
 StallWatch g_stall;
 FixedStep g_step;
@@ -316,8 +325,8 @@ void sync_window(Vec3 feet) {
 }
 
 void log_window(const char *when) {
-    logf("collision window when=%s loaded=%u gathers=%u flips=%u loads=%u", when, (unsigned)g_window.loaded().size(),
-         g_window.stats.gathers, g_window.stats.flips, g_window_loads);
+    logf("collision window when=%s loaded=%u solid=%u gathers=%u flips=%u loads=%u", when, (unsigned)g_window.loaded().size(),
+         g_solid, g_window.stats.gathers, g_window.stats.flips, g_window_loads);
 }
 
 bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
@@ -329,14 +338,18 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
     write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
     g_sim.frame = {at, g_config.scale};
     SurfaceStats ss;
-    std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &g_owners);
+    std::vector<uint32_t> kept;
+    std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &kept);
+    std::vector<bool> fixed;
+    g_owners.clear(), g_solid = 0;
+    for (uint32_t i : kept) g_owners.push_back(tris[i].owner), fixed.push_back(tris[i].solid), g_solid += tris[i].solid;
     log_collision(st, tris.size(), ss);
     if (!st.scale_samples || st.scale_max_err > kMaxScaleErr) {
         logf("refused: havok scale samples=%d max_err=%.3f limit=%.1f", st.scale_samples, st.scale_max_err, kMaxScaleErr);
         return false;
     }
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
-    g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale);
+    g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale, fixed);
     g_window_loads = 0, g_stall = {};
     sync_window(s);
     log_window("spawn");
@@ -675,6 +688,7 @@ void on_frame() {
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
+    else if (g_config.scenario == "table") tick_control_scenario(kTable);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
