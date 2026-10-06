@@ -4,6 +4,7 @@
 #include "game/rtti.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -253,15 +254,10 @@ struct Walker {
         }
     }
 
-    void refs(fnv::TESObjectCELL *cell) {
-        stats.cells++;
-        for (auto *it = &cell->objectList; it; it = it->next) {
-            fnv::TESObjectREFR *ref = it->data;
-            if (!shown(ref)) continue;
-            stats.refs++;
-            owner = ref->form.refID;
-            node(ref->renderState->niNode, 0);
-        }
+    void ref(fnv::TESObjectREFR *r) {
+        stats.refs++;
+        owner = r->form.refID;
+        node(r->renderState->niNode, 0);
     }
 
     void node(const void *av, int depth) {
@@ -301,14 +297,45 @@ template <typename F> void each_cell(fnv::TESObjectCELL *cell, F visit) {
         if (fnv::vtbl_of(cells[i]) == fnv::kVtblTESObjectCELL && cells[i]->cellState == kCellAttached) visit(cells[i]);
 }
 
-std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
-    std::vector<Tri> out;
-    Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, out, stats};
-    each_cell(cell, [&](fnv::TESObjectCELL *one) {
-        w.refs(one);
+void Gatherer::begin(fnv::TESObjectCELL *cell, Vec3 c, float r) {
+    *this = {};
+    cell_ = cell, lo_ = {c.x - r, c.y - r, c.z - r}, hi_ = {c.x + r, c.y + r, c.z + r}, walking_ = true;
+}
+
+bool Gatherer::step(double budget_s) {
+    using clock = std::chrono::steady_clock;
+    clock::time_point t0 = clock::now();
+    auto over = [&] { return std::chrono::duration<double>(clock::now() - t0).count() > budget_s; };
+    Walker w{lo_, hi_, out_, stats};
+    bool finished = true;
+    steps++;
+    each_cell(cell_, [&](fnv::TESObjectCELL *one) {
+        if (!finished) return;
+        for (auto *it = &one->objectList; it; it = it->next) {
+            fnv::TESObjectREFR *ref = it->data;
+            if (!shown(ref) || done_.count(ref->form.refID)) continue;
+            if (over()) return void(finished = false);
+            w.ref(ref);
+            done_.insert(ref->form.refID);
+        }
+        if (landed_.count(one)) return;
+        if (over()) return void(finished = false);
+        stats.cells++;
         if (!one->interior()) w.land(one);
+        landed_.insert(one);
     });
-    return out;
+    walking_ = !finished;
+    return finished;
+}
+
+std::vector<Tri> Gatherer::take() { return std::move(out_); }
+
+std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
+    Gatherer g;
+    g.begin(cell, c, r);
+    g.step(INFINITY);
+    stats = g.stats;
+    return g.take();
 }
 
 std::vector<fnv::TESObjectCELL *> loaded_cells(fnv::TESObjectCELL *cell) {

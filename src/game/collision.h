@@ -5,7 +5,9 @@
 #include "game/fnv.h"
 
 #include <map>
+#include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace sm64nv {
@@ -25,8 +27,28 @@ struct CollisionStats {
     Vec3 scale_worst_node{}, scale_worst_body{};
 };
 
-// static havok collision in game units, kept to the box around center
-// outdoors it covers every loaded cell and the ground
+// walks the loaded cells for the static havok collision within the box around center
+// a little at a time, references then ground, under a time budget per step
+class Gatherer {
+public:
+    void begin(fnv::TESObjectCELL *cell, Vec3 center, float radius);
+    // true once every reference and every cell's ground has been walked
+    bool step(double budget_s);
+    bool walking() const { return walking_; }
+    std::vector<Tri> take();
+    CollisionStats stats;
+    int steps = 0;
+
+private:
+    fnv::TESObjectCELL *cell_ = nullptr;
+    Vec3 lo_{}, hi_{};
+    std::vector<Tri> out_;
+    std::unordered_set<uint32_t> done_;
+    std::set<const fnv::TESObjectCELL *> landed_;
+    bool walking_ = false;
+};
+
+// the whole walk in one go
 std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 center, float radius, CollisionStats &stats);
 // the cell itself indoors, outdoors every cell that has its references attached
 std::vector<fnv::TESObjectCELL *> loaded_cells(fnv::TESObjectCELL *cell);

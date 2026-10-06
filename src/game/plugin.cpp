@@ -79,6 +79,8 @@ const int kRestoreTicks = 10;
 const float kDoorReach = 150;
 // how often the doors are looked at for one that swung since the world was gathered
 const int kDoorLookTicks = 15;
+// what a frame may spend walking the engine for a regather
+const double kWalkBudget = 0.003;
 // a place just arrived in may still be loading, so it is looked at again for this long
 const int kArriveLookTicks = 120;
 const uint32_t kActIdle = 0x0C400201;
@@ -190,6 +192,14 @@ const ScriptLine kPrimmScript[] = {
     {240, "ReleaseKey 17"}, {250, "spot far"},
 };
 const ControlScript kPrimm{kPrimmScript, {}, {}, 260};
+// the hotel's corridor, run along it and back and along it again
+const ScriptLine kHotelScript[] = {
+    {60, "player.SetAngle Z 90"}, {62, "mario -380 -3660 256 90"}, {80, "HoldKey 17"}, {140, "ReleaseKey 17"}, {145, "spot east"},
+    {150, "player.SetAngle Z 270"}, {160, "HoldKey 17"}, {220, "ReleaseKey 17"}, {225, "spot west"},
+    {230, "player.SetAngle Z 90"}, {240, "HoldKey 17"}, {300, "ReleaseKey 17"}, {305, "spot again"},
+};
+const Move kHotelMoves[] = {{"east", 80, 140}, {"west", 160, 220}, {"again", 240, 300}};
+const ControlScript kHotel{kHotelScript, kHotelMoves, {}, 315};
 
 // a road to an airport, a running jump over a burned out car and a run at a chain link fence
 const ScriptLine kAirportScript[] = {
@@ -400,11 +410,13 @@ SurfaceWindow g_window{{}, 0, 0};
 Regather g_regather{kRegatherMove};
 DoorPoses g_doors;
 Builder g_builder;
-// the gather whose surfaces are being built, with the place as it was walked
+Gatherer g_gatherer;
+// the regather under way, walked in slices and then built, with the place as it was walked
 struct Pending {
     int gen = -1, tick = 0, refs = 0, off = 0, turned = 0;
     Vec3 center{};
-    float moved = 0, walk_ms = 0;
+    // the longest slice a frame paid and all of them together
+    float moved = 0, slice_ms = 0, walk_ms = 0;
     size_t tris = 0, decoded = 0, culled = 0;
     const char *why = "";
     std::vector<DoorPoses::Pose> doors;
@@ -433,7 +445,8 @@ PuffCounts g_puffs;
 
 struct Smooth {
     int frames = 0, hitches = 0;
-    float max_step = 0;
+    // the longest the frame hook took while he was meant to be moving
+    float max_step = 0, max_ms = 0;
 };
 
 struct Control {
@@ -444,6 +457,7 @@ struct Control {
     // how far under his placing the game has let the player sink
     float settle = 0;
     int frames = 0, tick = 0, restore_check = 0;
+    double frame_t0 = 0;
     uint32_t action = 0;
     bool started = false, placed = false, blocked = false;
     // frames spent with the player still mario's and no mario, 0 when he has one or is let go
@@ -640,26 +654,37 @@ bool gather_world(Vec3 center, bool first, bool dump = false) {
     return true;
 }
 
-void log_regather(bool ok, float ms, const Built *b, int wait) {
+// ms is the most one frame paid for this regather
+void log_regather(bool ok, float ms, const Built *b) {
     const Pending &p = g_pending;
     logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d why=%s walk=%.1f build=%.1f window=%.1f "
-         "decoded=%u culled=%u wait=%d",
+         "decoded=%u culled=%u wait=%d steps=%d",
          g_sim.ticks, p.moved, ms, ok, (unsigned)p.tris, p.off, p.turned, p.why, p.walk_ms, b ? b->build_ms : 0.0f,
-         b ? b->window_ms : 0.0f, (unsigned)p.decoded, (unsigned)p.culled, wait);
+         b ? b->window_ms : 0.0f, (unsigned)p.decoded, (unsigned)p.culled, g_sim.ticks - p.tick, g_gatherer.steps);
 }
 
-// the engine is walked here and now, the surfaces are built on the builder's thread
 void start_regather(Vec3 center, const char *why) {
+    g_pending = {g_sim.gen, g_sim.ticks, 0, 0, 0, center, g_regather.moved(center), 0, 0, 0, 0, 0, why, {}};
+    g_gatherer.begin(g_sim.cell, center, kCollisionRadius);
+}
+
+// one slice of the walk, the surfaces go to the builder's thread once it is whole
+void walk_regather() {
     double t0 = seconds_now();
-    CollisionStats st;
-    std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
-    g_pending = {g_sim.gen, g_sim.ticks, st.refs, st.scale.off, st.turn.off, center, g_regather.moved(center),
-                 float((seconds_now() - t0) * 1000), tris.size(), st.decoded, st.culled, why, door_poses(g_sim.cell)};
+    bool whole = g_gatherer.step(kWalkBudget);
+    float ms = (seconds_now() - t0) * 1000;
+    g_pending.walk_ms += ms, g_pending.slice_ms = std::fmax(g_pending.slice_ms, ms);
+    if (!whole) return;
+    const CollisionStats &st = g_gatherer.stats;
+    std::vector<Tri> tris = g_gatherer.take();
+    g_pending.refs = st.refs, g_pending.off = st.scale.off, g_pending.turned = st.turn.off;
+    g_pending.tris = tris.size(), g_pending.decoded = st.decoded, g_pending.culled = st.culled;
+    g_pending.doors = door_poses(g_sim.cell);
     std::string bad = distrust(st);
     if (!bad.empty()) {
         logf("refused: %s", bad.c_str());
         g_regather.refused(g_sim.ticks);
-        return log_regather(false, g_pending.walk_ms, nullptr, 0);
+        return log_regather(false, g_pending.slice_ms, nullptr);
     }
     g_builder.start(to_build(std::move(tris)));
 }
@@ -668,12 +693,14 @@ void finish_regather(Built &b) {
     if (g_pending.gen != g_sim.gen) return logf("collision dropped tick=%d gen=%d now=%d", g_sim.ticks, g_pending.gen, g_sim.gen);
     double t0 = seconds_now();
     install(b, g_pending.center, g_pending.refs, std::move(g_pending.doors));
-    log_regather(true, g_pending.walk_ms + float((seconds_now() - t0) * 1000), &b, g_sim.ticks - g_pending.tick);
+    log_regather(true, std::fmax(g_pending.slice_ms, float((seconds_now() - t0) * 1000)), &b);
 }
 
 void regather_when_far() {
+    if (g_gatherer.walking() && g_pending.gen != g_sim.gen) g_gatherer = {};
+    if (g_gatherer.walking()) walk_regather();
     if (std::optional<Built> b = g_builder.take()) finish_regather(*b);
-    if (g_builder.busy()) return;
+    if (g_gatherer.walking() || g_builder.busy()) return;
     Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos);
     // a place just arrived in is gathered again when more of it has loaded and once at the end
     int left = g_sim.arrive_until - g_sim.ticks;
@@ -1099,7 +1126,7 @@ void control_tick() {
         if (t != mv.to) continue;
         logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
         const Smooth &sm = g_ctl.smooth;
-        logf("control smooth name=%s frames=%d hitches=%d max_step=%.2f", mv.name, sm.frames, sm.hitches, sm.max_step);
+        logf("control smooth name=%s frames=%d hitches=%d max_step=%.2f max_ms=%.1f", mv.name, sm.frames, sm.hitches, sm.max_step, sm.max_ms);
     }
     if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
     if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
@@ -1167,6 +1194,7 @@ void track_smooth(float step) {
     if (expected < 0.05f) return;
     sm.frames++, sm.hitches += step < 0.01f;
     sm.max_step = std::fmax(sm.max_step, step);
+    sm.max_ms = std::fmax(sm.max_ms, float((seconds_now() - g_ctl.frame_t0) * 1000));
 }
 
 // how far the player is from where mario put him last
@@ -1228,6 +1256,7 @@ void seat_mario() {
 }
 
 void control_frame() {
+    g_ctl.frame_t0 = seconds_now();
     if (taken()) follow_cell();
     if (g_ctl.placed) g_ctl.max_gap = std::fmax(g_ctl.max_gap, player_gap()), g_ctl.frames++;
     // the game lowers a player without collision, slowly and never far
@@ -1296,6 +1325,7 @@ void on_frame() {
     else if (g_config.scenario == "outside") tick_control_scenario(kOutside);
     else if (g_config.scenario == "windmill") tick_control_scenario(kWindmill);
     else if (g_config.scenario == "primm") tick_control_scenario(kPrimm);
+    else if (g_config.scenario == "hotel") tick_control_scenario(kHotel);
     else if (g_config.scenario == "airport") tick_control_scenario(kAirport);
     else if (g_config.scenario == "kerb") tick_control_scenario(kKerb);
     else if (g_config.scenario == "terminal") tick_control_scenario(kTerminal);
