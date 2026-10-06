@@ -96,6 +96,8 @@ ControlState g_courier;
 bool g_taken;
 // the game switched looking off while mario had the player and gets that back on release
 bool g_looking_off;
+// and so with a package of the game's that walks the player, which stops its look code too
+bool g_walked;
 
 // the save writes the control flags, pov and zoom so it gets the courier's
 void __thiscall save_player(void *p, uint32_t changed) {
@@ -204,8 +206,12 @@ float look_stick() { return g_pad.rx / 32767.0f; }
 
 std::string pad_mode() {
     auto *ui = *reinterpret_cast<uint8_t **>(0x011D8A80);
+    // four bytes on the player stop the game's look code, the last for a package walking him
+    char held[8];
+    auto *p = reinterpret_cast<const uint8_t *>(fnv::player());
+    snprintf(held, sizeof held, "%d%d%d%d", p[0x798] != 0, p[0x799] != 0, p[0x79A] != 0, p[0x79B] != 0);
     return "pad_active=" + std::to_string(*reinterpret_cast<uint8_t *>(0x011F35C8)) + " keys_and_mouse=" +
-           std::to_string(ui ? ui[0x7D] : -1);
+           std::to_string(ui ? ui[0x7D] : -1) + " held_by=" + held;
 }
 
 bool hook_pad(std::string &why) {
@@ -253,7 +259,9 @@ void release_player(ControlState &saved) {
     void *p = fnv::player();
     g_taken = false;
     if (g_looking_off) saved.controls |= kLooking, reinterpret_cast<SetControls>(0x0095F530)(p, true, kLooking);
-    g_looking_off = false;
+    if (g_walked) field<uint8_t>(p, 0x79B) = 1;
+    if (g_looking_off || g_walked) logf("control handed back looking_off=%d walked=%d", g_looking_off, g_walked);
+    g_looking_off = g_walked = false;
     reinterpret_cast<SetControls>(0x0095F530)(p, false, kBlockedControls & ~saved.controls);
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, !saved.third);
     *reinterpret_cast<float *>(kCameraZoom) = saved.zoom;
@@ -268,10 +276,13 @@ int hold_player() {
     void *p = fnv::player();
     uint8_t had = field<uint8_t>(p, 0x680);
     bool loose = (had & kBlockedControls) != kBlockedControls || !field<uint8_t>(p, 0x64A);
-    if (!loose && !(had & kLooking)) return -1;
+    uint8_t &walked = field<uint8_t>(p, 0x79B);
+    if (!loose && !(had & kLooking) && !walked) return -1;
     if (had & kLooking) reinterpret_cast<SetControls>(0x0095F530)(p, false, kLooking), g_looking_off = true;
     if (loose) grip(p);
-    return had;
+    int was = had | (walked ? 0x100 : 0);
+    if (walked) walked = 0, g_walked = true;
+    return was;
 }
 
 void *body_parent() { return body() ? field<void *>(body(), 0x18) : nullptr; }

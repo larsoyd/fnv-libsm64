@@ -33,7 +33,7 @@ bool take_player(const ControlState &courier, std::string &why);
 // looking the game switched off meanwhile goes off again, and saved is told so
 void release_player(ControlState &saved);
 // a door gives the player his controls and view back, a scene may switch looking off
-// what the control flags were when something had to be put right, -1 when nothing had
+// the control flags when something had to be put right, 0x100 on top for a package, else -1
 int hold_player();
 void move_player(Vec3 pos);
 // the node the courier's body hangs under, a room indoors where there are rooms

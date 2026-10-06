@@ -334,10 +334,13 @@ const ScriptLine kPadoutScript[] = {
     {190, "pad lx=0 ly=32767 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {200, PAD_IDLE},
     {215, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {218, PAD_IDLE},
     {235, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=255 buttons=4000"}, {238, PAD_IDLE},
-    {245, PAD_DPAD_DOWN}, {248, PAD_IDLE}, {262, "state"},
+    {242, "player.AddScriptPackage 001055BE"},
+    {250, "pad lx=0 ly=0 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {260, PAD_IDLE},
+    {270, PAD_DPAD_DOWN}, {273, PAD_IDLE},
+    {276, "pad lx=0 ly=0 rx=32767 ry=0 lt=0 rt=0 buttons=0000"}, {283, PAD_IDLE}, {287, "state"},
 };
 const Move kPadoutMoves[] = {{"in_before", 50, 55}, {"in_after", 72, 76}, {"out_before", 180, 185}, {"out_after", 202, 206}};
-const ControlScript kPadout{kPadoutScript, kPadoutMoves, {}, 270};
+const ControlScript kPadout{kPadoutScript, kPadoutMoves, {}, 295};
 // at a prison yard, a run at a wall pillar whose collision is on a layer of no name
 const ScriptLine kPrisonScript[] = {
     {45, "cow WastelandNV -8 -8"},
