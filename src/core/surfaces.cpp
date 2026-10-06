@@ -1,6 +1,8 @@
 #include "surfaces.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 
 namespace sm64nv {
 
@@ -43,10 +45,12 @@ std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &
 
 bool stand_up(SM64Surface &s) {
     Vec3 n = surface_normal(s);
-    float len = std::hypot(n.x, n.z), hx = n.x / len, hz = n.z / len, cx = 0, cz = 0, fx[3], fz[3];
-    for (const auto &v : s.vertices) cx += v[0] / 3.0f, cz += v[2] / 3.0f;
+    float len = std::hypot(n.x, n.z), hx = n.x / len, hz = n.z / len, fx[3], fz[3];
+    // a ledge over the face ends at its top so the wall goes there
+    const auto &top = *std::max_element(std::begin(s.vertices), std::end(s.vertices), [](auto &a, auto &b) { return a[1] < b[1]; });
     for (int i = 0; i < 3; i++) {
-        float d = (s.vertices[i][0] - cx) * hx + (s.vertices[i][2] - cz) * hz;
+        // half a unit off the corner, so it can round either way like the other two
+        float d = (s.vertices[i][0] - top[0]) * hx + (s.vertices[i][2] - top[2]) * hz - 0.5f;
         fx[i] = s.vertices[i][0] - d * hx, fz[i] = s.vertices[i][2] - d * hz;
     }
     // whole unit corners can tip it past 0.01 again so try every way of rounding them
@@ -63,6 +67,17 @@ bool stand_up(SM64Surface &s) {
     }
     s = best;
     return best_up <= 0.01f;
+}
+
+bool height_at(const SM64Surface &s, float x, float z, float &height) {
+    const auto &v = s.vertices;
+    float ux = v[1][0] - v[0][0], uz = v[1][2] - v[0][2], wx = v[2][0] - v[0][0], wz = v[2][2] - v[0][2];
+    float area = ux * wz - uz * wx, px = x - v[0][0], pz = z - v[0][2];
+    if (!area) return false;
+    float a = (px * wz - pz * wx) / area, b = (ux * pz - uz * px) / area;
+    if (a < 0 || b < 0 || a + b > 1) return false;
+    height = v[0][1] + a * (v[1][1] - v[0][1]) + b * (v[2][1] - v[0][1]);
+    return true;
 }
 
 // same cross product as the sm64 surface loader so the class matches what mario sees

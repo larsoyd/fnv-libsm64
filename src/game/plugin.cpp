@@ -10,6 +10,7 @@
 #include "core/stall.h"
 #include "core/step.h"
 #include "core/surfaces.h"
+#include "core/walls.h"
 #include "core/window.h"
 #include "game/collision.h"
 #include "game/control.h"
@@ -385,13 +386,13 @@ void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss
 
 void sync_window(Vec3 feet) {
     if (!g_window.update(feet)) return;
-    sm64_static_surfaces_load(g_window.loaded().data(), (uint32_t)g_window.loaded().size());
+    load_window(g_window);
     g_window_loads++;
 }
 
 void log_window(const char *when) {
-    logf("collision window when=%s loaded=%u solid=%u gathers=%u flips=%u loads=%u", when, (unsigned)g_window.loaded().size(),
-         g_solid, g_window.stats.gathers, g_window.stats.flips, g_window_loads);
+    logf("collision window when=%s loaded=%u solid=%u gathers=%u flips=%u settled=%u loads=%u", when,
+         (unsigned)g_window.loaded().size(), g_solid, g_window.stats.gathers, g_window.stats.flips, g_window.stats.settled, g_window_loads);
 }
 
 // collision around center in mario's frame, a refusal keeps the set that was there
