@@ -1,4 +1,5 @@
 #include "core/arrival.h"
+#include "core/attack.h"
 #include "core/audio.h"
 #include "core/config.h"
 #include "core/dds.h"
@@ -292,6 +293,19 @@ const ScriptLine kActorsScript[] = {
     {150, "mario 2352 1603.6 7560 90"}, {215, "spot dropped"}, {220, "actor SetRestrained 0"},
 };
 const ControlScript kActors{kActorsScript, {}, {}, 230};
+// a settler made next to mario: a punch facing away, one at him, a jump kick and a pound
+const ScriptLine kAttackScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "actor SetRestrained 1"},
+    {60, "beside -85 0 270"}, {70, "actors 600"}, {75, "HoldKey 42"}, {77, "ReleaseKey 42"},
+    {100, "beside -85 0 90"}, {105, "HoldKey 42"}, {107, "ReleaseKey 42"},
+    {120, "actors 600"}, {135, "actor SetRestrained 0"},
+    {140, "beside -85 0 90"}, {150, "HoldKey 57"}, {153, "ReleaseKey 57"}, {156, "HoldKey 42"}, {158, "ReleaseKey 42"},
+    {165, "actors 600"}, {200, "actors 600"},
+    {215, "beside -85 0 90"}, {220, "HoldKey 57"}, {223, "ReleaseKey 57"}, {228, "HoldKey 29"}, {232, "ReleaseKey 29"},
+    {270, "actors 600"},
+};
+const int kAttackShots[] = {200};
+const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
 
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
@@ -332,6 +346,8 @@ StallWatch g_stall;
 ActorBoxes g_boxes;
 std::vector<LiveActor> g_near;
 ActorStats g_actor_stats;
+Swing g_swing;
+Thrown g_thrown;
 LastFit g_fit;
 Trail g_trail;
 FixedStep g_step;
@@ -421,8 +437,9 @@ void finish(bool ok, const char *reason) {
     g_done = true;
 }
 
-void run_console(const std::string &line) {
-    unsigned ret = g_console ? g_console->runScriptLine(line.c_str(), nullptr) : 0;
+// on a reference the line runs as if that one were picked in the console
+void run_console(const std::string &line, void *ref = nullptr) {
+    unsigned ret = g_console ? g_console->runScriptLine(line.c_str(), ref) : 0;
     logf("console line=%s ok=%d ret=%u", line.c_str(), ret != 0, ret);
 }
 
@@ -654,7 +671,7 @@ bool held() { return taken() || g_ctl.carry; }
 void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
-    g_boxes.clear(), g_near.clear();
+    g_boxes.clear(), g_near.clear(), g_thrown.clear();
 }
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
@@ -714,7 +731,8 @@ void take_control() {
     focus_game();
     if (!sound_ready() && sound_open(why)) logf("sound open rate=%d", kAudioRate);
     else if (!sound_ready()) logf("sound unavailable reason=%s", why.c_str());
-    if (!control_state().noclip) run_console("tcl");
+    // on the player alone, the game wide toggle would leave nobody able to fall over
+    if (!control_state().noclip) run_console("tcl", fnv::player());
     // the camera aims at courier eye height so tilt it down onto mario
     run_console("player.SetAngle X 20");
     ControlState cs = control_state();
@@ -736,7 +754,7 @@ void release_control(const char *reason) {
     g_ctl.placed = false, g_ctl.carry = 0;
     mario_mesh_hide();
     release_player(g_ctl.saved);
-    if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl");
+    if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl", fnv::player());
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
     // a save load replaces what was put back so there is nothing to read back
     g_ctl.restore_check = strcmp(reason, "load") ? g_ctl.tick + kRestoreTicks : 0;
@@ -799,6 +817,16 @@ void teleport_mario(const char *args) {
     logf("control teleport tick=%d to=%s heading=%.1f", g_ctl.tick, xyz(g).c_str(), deg);
 }
 
+// stands mario east and north of the nearest actor by so much, facing a heading
+void teleport_beside(const char *args) {
+    float dx, dy, deg;
+    if (g_near.empty() || sscanf(args, "%f %f %f", &dx, &dy, &deg) != 3) return finish(false, "beside");
+    Vec3 a = g_near[0].body.feet;
+    char to[96];
+    snprintf(to, sizeof to, "%.1f %.1f %.1f %.1f", a.x + dx, a.y + dy, a.z + 1, deg);
+    teleport_mario(to);
+}
+
 // wall clock so a recording of the stream can be lined up with the windows
 uint64_t unix_ms() {
     FILETIME ft;
@@ -822,6 +850,30 @@ void log_sound(const char *name) {
     g_sound_from = now;
 }
 
+const char *kAttackNames[] = {"none", "punch", "kick", "dive", "pound"};
+
+// the blow mario is throwing lands on whoever it reaches, once each
+void land_blows(int t) {
+    Attack now = attack_now(g_sim.state.action, g_sim.state.flags);
+    g_swing.tick(now);
+    if (now == Attack::none) return;
+    AttackProfile p = attack_profile(now);
+    Vec3 feet = mario_pos();
+    float heading = heading_from_sm64_yaw(g_sim.state.faceAngle), scale = g_sim.frame.scale;
+    for (const LiveActor &a : g_near) {
+        if (!attack_reaches(p, feet, LastFit::kHeight / scale, heading, a.body) || !g_swing.lands(a.body.id)) continue;
+        float before = actor_health(a.ref), damage = strike(a.ref, p.damage * g_config.punch);
+        logf("attack hit tick=%d kind=%s ref=%08X damage=%.1f health=%.1f>%.1f", t, kAttackNames[(int)now], a.body.id, damage, before,
+             actor_health(a.ref));
+        if (p.push > 0 && g_thrown.allow(a.body.id, t))
+            logf("attack push tick=%d ref=%08X force=%.1f ok=%d", t, a.body.id, p.push, shove(a.ref, feet, p.push));
+        // libsm64 gives mario his own recoil and the sound of the hit
+        Vec3 n = nearest_on(a.body, feet);
+        Vec3 s = to_sm64(g_sim.frame, {n.x, n.y, a.body.feet.z});
+        sm64_mario_attack(g_sim.id, s.x, s.y, s.z, a.body.height * scale);
+    }
+}
+
 void log_actors(float reach) {
     ActorStats st;
     Vec3 m = mario_pos();
@@ -829,10 +881,10 @@ void log_actors(float reach) {
     logf("control actors tick=%d near=%u seen=%d far=%d down=%d unsized=%d boxes=%u", g_ctl.tick, (unsigned)found.size(), st.seen,
          st.away, st.down, st.unsized, (unsigned)g_boxes.size());
     for (const LiveActor &a : found)
-        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f", a.body.id,
+        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d", a.body.id,
              a.ref->baseForm->refID, a.ref->baseForm->typeID, xyz(a.body.feet).c_str(), a.body.heading * 180 / 3.14159265f,
              a.body.half_width, a.body.half_length, a.body.height,
-             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z));
+             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref));
 }
 
 // a console line run on the actor nearest mario
@@ -873,6 +925,7 @@ void control_tick() {
         // menus and the console still see the keys, mario must not
         Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
         tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
+        land_blows(t);
         g_trail.add(t, mario_pos(), g_sim.state.action, pad.forward, pad.right, pad.buttons);
         keep_fit(t);
         if (g_stall.feed(g_ticks.cur_pos, std::hypot(pad.right, pad.forward))) log_stall(t), log_trail();
@@ -905,6 +958,7 @@ void control_tick() {
         // pad lines are for the virtual gamepad that follows this log
         if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
         else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
+        else if (!strncmp(line.line, "beside ", 7)) teleport_beside(line.line + 7);
         else if (!strcmp(line.line, "sound pause")) sound_pause();
         else if (!strcmp(line.line, "sound status")) log_sound_status();
         else if (!strcmp(line.line, "doors")) log_doors();
@@ -1088,6 +1142,7 @@ void on_frame() {
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
+    else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.started;

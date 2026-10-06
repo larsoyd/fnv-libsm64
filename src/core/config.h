@@ -13,6 +13,8 @@ struct Config {
     std::string cell;
     int frames = 0;
     bool autotake = false;
+    // damage of one punch before the target's armour
+    float punch = 20;
     std::vector<std::string> errors;
 };
 

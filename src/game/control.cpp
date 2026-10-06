@@ -18,7 +18,8 @@ const uintptr_t kInputGlobals = 0x011F35CC;
 // the game's own copy of the xinput state, the gamepad report follows the packet number
 const uintptr_t kGamepadState = 0x011F35A8 + 4;
 const uintptr_t kOSGlobals = 0x011DEA0C;
-const uintptr_t kNoclip = 0x011C3C0D;
+// what the collision toggle sets on one reference, the game wide switch stops ragdolls too
+const uint32_t kNoCollision = 0x10;
 const uintptr_t kSceneGraph = 0x011DEB7C;
 const uintptr_t kCameraZoom = 0x011E0B5C;
 const float kZoom = 250;
@@ -85,8 +86,10 @@ bool g_taken;
 // the save writes the control flags, pov and zoom so it gets the courier's
 void __thiscall save_player(void *p, uint32_t changed) {
     uint8_t controls = field<uint8_t>(p, 0x680), third = field<uint8_t>(p, 0x64A);
+    uint32_t flags = fnv::player()->form.flags;
     float zoom = *reinterpret_cast<float *>(kCameraZoom);
     if (g_taken) {
+        if (!g_courier.noclip) fnv::player()->form.flags &= ~kNoCollision;
         field<uint8_t>(p, 0x680) = controls & ~(kBlockedControls & ~g_courier.controls);
         field<uint8_t>(p, 0x64A) = g_courier.third;
         *reinterpret_cast<float *>(kCameraZoom) = g_courier.zoom;
@@ -94,6 +97,7 @@ void __thiscall save_player(void *p, uint32_t changed) {
     logf("save player taken=%d controls=%02X written=%02X", g_taken, controls, field<uint8_t>(p, 0x680));
     reinterpret_cast<SaveGame>(kPlayerSave)(p, changed);
     field<uint8_t>(p, 0x680) = controls, field<uint8_t>(p, 0x64A) = third;
+    fnv::player()->form.flags = flags;
     *reinterpret_cast<float *>(kCameraZoom) = zoom;
 }
 
@@ -197,7 +201,7 @@ bool camera_pos(Vec3 &out) {
 
 ControlState control_state() {
     void *p = fnv::player();
-    return {field<uint8_t>(p, 0x680), *reinterpret_cast<uint8_t *>(kNoclip) != 0, field<uint8_t>(p, 0x64A) != 0,
+    return {field<uint8_t>(p, 0x680), (fnv::player()->form.flags & kNoCollision) != 0, field<uint8_t>(p, 0x64A) != 0,
             body() && (culled(body()) || parts_hidden()), *reinterpret_cast<float *>(kCameraZoom),
             field<float>(chase_setting(), 0x04), has_focus(), os_globals() && field<uint8_t>(os_globals(), 0x03)};
 }
