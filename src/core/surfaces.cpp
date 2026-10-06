@@ -5,6 +5,8 @@
 namespace sm64nv {
 
 static const uint16_t kTerrainStone = 1;
+// past about 78 degrees a face is meant as a wall but sm64 wants it within 0.01
+static const float kNearlyUpright = 0.2f;
 
 std::vector<Tri> quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d) { return {{a, b, c}, {a, c, d}}; }
 
@@ -25,6 +27,11 @@ std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &
             stats.degenerate++;
             continue;
         }
+        if (std::fabs(n.y) > 0.01f && std::fabs(n.y) < kNearlyUpright) {
+            stats.stood_up++;
+            stats.still_steep += !stand_up(s);
+            n = surface_normal(s);
+        }
         if (n.y > 0.01f) stats.floors++;
         else if (n.y < -0.01f) stats.ceilings++;
         else stats.walls++;
@@ -32,6 +39,30 @@ std::vector<SM64Surface> build_surfaces(const Frame &f, const std::vector<Tri> &
         if (owners) owners->push_back(t.owner);
     }
     return out;
+}
+
+bool stand_up(SM64Surface &s) {
+    Vec3 n = surface_normal(s);
+    float len = std::hypot(n.x, n.z), hx = n.x / len, hz = n.z / len, cx = 0, cz = 0, fx[3], fz[3];
+    for (const auto &v : s.vertices) cx += v[0] / 3.0f, cz += v[2] / 3.0f;
+    for (int i = 0; i < 3; i++) {
+        float d = (s.vertices[i][0] - cx) * hx + (s.vertices[i][2] - cz) * hz;
+        fx[i] = s.vertices[i][0] - d * hx, fz[i] = s.vertices[i][2] - d * hz;
+    }
+    // whole unit corners can tip it past 0.01 again so try every way of rounding them
+    SM64Surface best = s;
+    float best_up = 2;
+    for (int m = 0; m < 64; m++) {
+        SM64Surface t = s;
+        for (int i = 0; i < 3; i++) {
+            t.vertices[i][0] = int32_t(m >> 2 * i & 1 ? std::ceil(fx[i]) : std::floor(fx[i]));
+            t.vertices[i][2] = int32_t(m >> (2 * i + 1) & 1 ? std::ceil(fz[i]) : std::floor(fz[i]));
+        }
+        Vec3 tn = surface_normal(t);
+        if ((tn.x || tn.z) && std::fabs(tn.y) < best_up) best_up = std::fabs(tn.y), best = t;
+    }
+    s = best;
+    return best_up <= 0.01f;
 }
 
 // same cross product as the sm64 surface loader so the class matches what mario sees

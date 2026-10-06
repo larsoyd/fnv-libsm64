@@ -140,6 +140,13 @@ const ScriptLine kWallsScript[] = {
     {200, "HoldKey 17"}, {290, "ReleaseKey 17"}, {295, "spot gap_out"},
 };
 const ControlScript kWalls{kWallsScript, {}, {}, 305};
+// walks into the nearly upright sides of the shelf by the south wall and back out
+const ScriptLine kSteepScript[] = {
+    {40, "player.SetAngle Z 292.5"}, {45, "mario 1696 1102 7360 292.5"}, {55, "HoldKey 17"}, {145, "ReleaseKey 17"},
+    {150, "spot steep"}, {152, "player.SetAngle Z 112.5"}, {155, "HoldKey 17"}, {245, "ReleaseKey 17"},
+    {250, "spot steep_out"},
+};
+const ControlScript kSteep{kSteepScript, {}, {}, 260};
 
 // tab opens the pip-boy and closes it again
 const ScriptLine kPipboyScript[] = {
@@ -293,8 +300,8 @@ void tick_cell_scenario() {
 }
 
 void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss) {
-    logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u", st.refs, st.bodies, (unsigned)tris,
-         ss.floors, ss.walls, ss.ceilings, ss.degenerate);
+    logf("collision refs=%d bodies=%d tris=%u floors=%u walls=%u ceilings=%u degenerate=%u stood_up=%u still_steep=%u", st.refs,
+         st.bodies, (unsigned)tris, ss.floors, ss.walls, ss.ceilings, ss.degenerate, ss.stood_up, ss.still_steep);
     logf("havok scale samples=%d max_err=%.3f node=%.3f,%.3f,%.3f body=%.3f,%.3f,%.3f", st.scale_samples,
          st.scale_max_err, st.scale_worst_node.x, st.scale_worst_node.y, st.scale_worst_node.z, st.scale_worst_body.x,
          st.scale_worst_body.y, st.scale_worst_body.z);
@@ -667,6 +674,7 @@ void on_frame() {
     else if (g_config.scenario == "play") tick_control_scenario(kPlay);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
+    else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
