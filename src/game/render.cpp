@@ -52,6 +52,11 @@ bool mario_mesh_create(void *parent, std::string &why) {
         why = std::string("parent type=") + rtti_name(parent);
         return false;
     }
+    if (g_shape && parent == g_parent) {
+        field<uint32_t>(g_shape, 0x30) &= ~1u;
+        logf("mesh shown parent=%s", rtti_name(parent));
+        return true;
+    }
     g_verts = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
     g_normals = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
     g_colors = static_cast<float *>(ni_alloc(kVerts * 4 * sizeof(float)));
@@ -85,6 +90,10 @@ void mario_mesh_update(const MeshOut &m, Vec3 world) {
     field<float>(g_shape, 0x58) = p.x, field<float>(g_shape, 0x5C) = p.y, field<float>(g_shape, 0x60) = p.z;
     virt<UpdateDownward>(g_shape, 0xA4)(g_shape, kUpdateData, 0);
 }
+
+void mario_mesh_hide() { field<uint32_t>(g_shape, 0x30) |= 1; }
+
+bool mario_mesh_hidden() { return field<uint32_t>(g_shape, 0x30) & 1; }
 
 void take_screenshot() { engine<Screenshot>(0x878860)(0); }
 

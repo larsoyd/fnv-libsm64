@@ -3,6 +3,7 @@
 #include "game/rtti.h"
 
 #include <cstdio>
+#include <cstring>
 #include <windows.h>
 
 namespace sm64nv {
@@ -15,6 +16,9 @@ const uintptr_t kNoclip = 0x011C3C0D;
 const uintptr_t kSceneGraph = 0x011DEB7C;
 const uintptr_t kCameraZoom = 0x011E0B5C;
 const float kZoom = 250;
+const uintptr_t kChaseSetting = 0x011CD568;
+const uintptr_t kVtblSetting = 0x01012114;
+const float kChase = 250;
 const uintptr_t kPlayerSetPos = 0x00931620;
 const uint32_t kHasKeyboard = 1 << 2;
 const uint8_t kBlockedControls = 0x01 | 0x08 | 0x10 | 0x40;
@@ -42,12 +46,20 @@ bool has_focus() {
 
 void *body() { return fnv::player()->renderState ? fnv::player()->renderState->niNode : nullptr; }
 
+void *chase_setting() { return reinterpret_cast<void *>(kChaseSetting); }
+
+bool chase_setting_ok() {
+    const char *name = field<const char *>(chase_setting(), 0x08);
+    return fnv::vtbl_of(chase_setting()) == kVtblSetting && name && !strcmp(name, "fChaseCameraMax");
 }
 
-bool read_game_pad(Pad &pad) {
+}
+
+bool read_game_pad(Pad &pad, bool &toggle) {
     auto *g = *reinterpret_cast<uint8_t **>(kInputGlobals);
     if (!g || !(field<uint32_t>(g, 0x04) & kHasKeyboard)) return false;
     pad = read_pad(g + 0x18F8, g + 0x1B30);
+    toggle = toggle_held(g + 0x18F8);
     return true;
 }
 
@@ -56,16 +68,29 @@ bool take_player(std::string &why) {
     if (fnv::vtbl_of(p) != fnv::kVtblPlayerCharacter) why = "player vtbl";
     else if (vslot(p, 0x2A8) != kPlayerSetPos) why = "player setpos slot";
     else if (fnv::vtbl_of(body()) != fnv::kVtblBSFadeNode) why = "body vtbl=" + hex(fnv::vtbl_of(body()));
+    else if (!chase_setting_ok()) why = "chase setting vtbl=" + hex(fnv::vtbl_of(chase_setting()));
     if (!why.empty()) return false;
     reinterpret_cast<SetControls>(0x0095F530)(p, true, kBlockedControls);
     reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, false);
     // the switch leaves the camera at its 60 unit minimum which puts mario's cap in the lens
     *reinterpret_cast<float *>(kCameraZoom) = kZoom;
+    // and the chase camera stops at 120 units which crops him
+    field<float>(chase_setting(), 0x04) = kChase;
     field<uint32_t>(body(), 0x30) |= 1;
     ControlState cs = control_state();
     if ((cs.controls & kBlockedControls) == kBlockedControls && cs.hidden) return true;
     why = "readback controls=" + hex(cs.controls) + " hidden=" + std::to_string(cs.hidden);
     return false;
+}
+
+void release_player(const ControlState &saved) {
+    void *p = fnv::player();
+    reinterpret_cast<SetControls>(0x0095F530)(p, false, kBlockedControls & ~saved.controls);
+    reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, !saved.third);
+    *reinterpret_cast<float *>(kCameraZoom) = saved.zoom;
+    field<float>(chase_setting(), 0x04) = saved.chase;
+    // going back to first person culls the body again by itself
+    if (body()) field<uint32_t>(body(), 0x30) &= ~1u;
 }
 
 void move_player(Vec3 pos) {
@@ -90,7 +115,14 @@ ControlState control_state() {
     void *p = fnv::player();
     return {field<uint8_t>(p, 0x680), *reinterpret_cast<uint8_t *>(kNoclip) != 0, field<uint8_t>(p, 0x64A) != 0,
             body() && (field<uint32_t>(body(), 0x30) & 1), *reinterpret_cast<float *>(kCameraZoom),
-            has_focus(), os_globals() && field<uint8_t>(os_globals(), 0x03)};
+            field<float>(chase_setting(), 0x04), has_focus(), os_globals() && field<uint8_t>(os_globals(), 0x03)};
+}
+
+std::string describe(const ControlState &cs) {
+    char buf[128];
+    snprintf(buf, sizeof buf, "controls=%02X noclip=%d third=%d hidden=%d zoom=%.1f chase=%.1f", cs.controls, cs.noclip,
+             cs.third, cs.hidden, cs.zoom, cs.chase);
+    return buf;
 }
 
 }

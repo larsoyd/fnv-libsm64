@@ -38,12 +38,15 @@ const Vec3 kLight{0.4f, -0.6f, 0.7f};
 const int kJumpFrom = 160, kJumpTo = 200;
 const int kControlShotTick = 262;
 const int kControlTicks = 280;
+// the game finishes the switch back to first person a few frames after the call
+const int kRestoreTicks = 10;
 
 struct ScriptLine {
     int tick;
     const char *line;
 };
-// dinput codes escape 1, W 17, D 32, lctrl 29, grave 41, lshift 42, space 57, left mouse 256
+// dinput codes esc 1, W 17, D 32, F 33, ctrl 29, grave 41, shift 42, M 50, space 57
+// and 256 is the left mouse button
 const ScriptLine kControlScript[] = {
     {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
     {80, "player.SetAngle Z 90"}, {85, "HoldKey 17"}, {100, "ReleaseKey 17"},
@@ -77,6 +80,18 @@ struct ControlScript {
 const ControlScript kControl{kControlScript, kControlMoves, kControlTicks, kJumpFrom, kJumpTo, kControlShotTick};
 const ControlScript kMenugate{kMenugateScript, kMenugateMoves, 190, -1, -1, -1};
 
+const ScriptLine kReleaseScript[] = {
+    {40, "HoldKey 17"}, {55, "ReleaseKey 17"},
+    {60, "HoldKey 41"}, {63, "ReleaseKey 41"}, {66, "HoldKey 50"}, {69, "ReleaseKey 50"}, {72, "HoldKey 41"}, {75, "ReleaseKey 41"},
+    {85, "HoldKey 50"}, {88, "ReleaseKey 50"}, {100, "HoldKey 17"}, {120, "ReleaseKey 17"},
+    {125, "HoldKey 33"}, {128, "ReleaseKey 33"}, {140, "HoldKey 50"}, {143, "ReleaseKey 50"},
+    {150, "player.SetAngle Z 90"}, {155, "HoldKey 17"}, {175, "ReleaseKey 17"}, {180, "HoldKey 50"}, {183, "ReleaseKey 50"},
+    {200, "HoldKey 50"}, {202, "ReleaseKey 50"}, {206, "HoldKey 50"}, {208, "ReleaseKey 50"},
+    {210, "HoldKey 50"}, {212, "ReleaseKey 50"},
+};
+const Move kReleaseMoves[] = {{"mario", 40, 55}, {"courier", 100, 120}, {"again", 155, 175}};
+const ControlScript kRelease{kReleaseScript, kReleaseMoves, 230, -1, -1, 177};
+
 nvse::PluginHandle g_handle;
 const nvse::ConsoleInterface *g_console;
 std::string g_dir;
@@ -106,9 +121,12 @@ struct Control {
     Pad pad{};
     Vec3 last{}, move_from{};
     float jump_floor = 0, jump_peak = 0, max_gap = 0;
-    int frames = 0;
+    int frames = 0, tick = 0, restore_check = 0;
     uint32_t action = 0;
     bool placed = false, blocked = false;
+    Press toggle;
+    ControlState saved{};
+    fnv::TESObjectCELL *cell = nullptr;
     const ControlScript *script = nullptr;
 };
 Control g_ctl;
@@ -322,15 +340,55 @@ bool log_camera(Vec3 m, float heading) {
     return true;
 }
 
+bool taken() { return g_sim.id >= 0; }
+
+Vec3 player_pos() { return {fnv::player()->pos[0], fnv::player()->pos[1], fnv::player()->pos[2]}; }
+
+void take_control() {
+    g_ctl.saved = control_state();
+    logf("control saved tick=%d %s", g_ctl.tick, describe(g_ctl.saved).c_str());
+    g_ctl.restore_check = 0;
+    std::string why;
+    if (!take_player(why)) return finish(false, ("take " + why).c_str());
+    focus_game();
+    if (!control_state().noclip) run_console("tcl");
+    // the camera aims at courier eye height so tilt it down onto mario
+    run_console("player.SetAngle X 20");
+    ControlState cs = control_state();
+    logf("control take controls=%02X noclip=%d hidden=%d", cs.controls, cs.noclip, cs.hidden);
+    if (!cs.noclip) return finish(false, "noclip");
+    spawn_drawn_mario(g_ctl.cell, 0);
+}
+
+void release_control(const char *reason) {
+    sm64_mario_delete(g_sim.id);
+    g_sim.id = -1;
+    g_ctl.placed = false;
+    mario_mesh_hide();
+    release_player(g_ctl.saved);
+    if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl");
+    logf("control release tick=%d reason=%s", g_ctl.tick, reason);
+    g_ctl.restore_check = g_ctl.tick + kRestoreTicks;
+}
+
+void check_restored() {
+    std::string now = describe(control_state());
+    logf("control restored tick=%d %s shape_hidden=%d", g_ctl.tick, now.c_str(), mario_mesh_hidden());
+    if (now != describe(g_ctl.saved)) finish(false, ("restore readback want " + describe(g_ctl.saved)).c_str());
+}
+
 void control_tick() {
     const ControlScript &s = *g_ctl.script;
     float cam = fnv::player()->rot[2];
-    // menus and the console still see the keys, mario must not
-    Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
-    tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
-    Vec3 m = mario_pos();
-    int t = g_sim.ticks;
-    if (g_sim.state.action != g_ctl.action) {
+    int t = ++g_ctl.tick;
+    if (taken()) {
+        // menus and the console still see the keys, mario must not
+        Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
+        tick_mario(make_inputs(cam, pad.right, pad.forward, pad.buttons));
+    }
+    if (t == g_ctl.restore_check) check_restored();
+    Vec3 m = taken() ? mario_pos() : player_pos();
+    if (taken() && g_sim.state.action != g_ctl.action) {
         g_ctl.action = g_sim.state.action;
         logf("mario action tick=%d action=%08X pos=%s", t, g_ctl.action, xyz(m).c_str());
     }
@@ -355,31 +413,32 @@ void control_tick() {
     }
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
-    fnv::TESObjectREFR *p = fnv::player();
     ControlState cs = control_state();
     logf("control follow frames=%d max_gap=%.2f", g_ctl.frames, g_ctl.max_gap);
-    logf("control end third=%d hidden=%d player=%s mario=%s", cs.third, cs.hidden,
-         xyz({p->pos[0], p->pos[1], p->pos[2]}).c_str(), xyz(m).c_str());
+    logf("control end third=%d hidden=%d player=%s mario=%s", cs.third, cs.hidden, xyz(player_pos()).c_str(), xyz(m).c_str());
     finish(true, "");
 }
 
 void control_frame() {
-    fnv::TESObjectREFR *p = fnv::player();
     if (g_ctl.placed) {
-        float gap = std::hypot(p->pos[0] - g_ctl.last.x, p->pos[1] - g_ctl.last.y, p->pos[2] - g_ctl.last.z);
-        g_ctl.max_gap = std::fmax(g_ctl.max_gap, gap);
+        Vec3 p = player_pos();
+        g_ctl.max_gap = std::fmax(g_ctl.max_gap, std::hypot(p.x - g_ctl.last.x, p.y - g_ctl.last.y, p.z - g_ctl.last.z));
         g_ctl.frames++;
     }
     Pad pad;
-    if (!read_game_pad(pad)) return finish(false, "input_globals");
+    bool toggle;
+    if (!read_game_pad(pad, toggle)) return finish(false, "input_globals");
     if (pad != g_ctl.pad)
-        logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_sim.ticks, pad.forward, pad.right,
+        logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_ctl.tick, pad.forward, pad.right,
              pad.buttons.a, pad.buttons.b, pad.buttons.z);
     g_ctl.pad = pad;
     bool blocked = menu_mode();
-    if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_sim.ticks, blocked, menu_mode());
+    if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_ctl.tick, blocked, menu_mode());
     g_ctl.blocked = blocked;
+    if (g_ctl.toggle.edge(toggle) && !blocked) taken() ? release_control("key") : take_control();
+    if (g_done) return;
     run_ticks(control_tick);
+    if (!taken() || g_done) return;
     draw_mario();
     g_ctl.last = mario_pos();
     move_player(g_ctl.last);
@@ -388,20 +447,9 @@ void control_frame() {
 
 void tick_control_scenario(const ControlScript &script) {
     g_ctl.script = &script;
-    if (g_sim.id >= 0) return control_frame();
-    fnv::TESObjectCELL *c = settle_cell();
-    if (!c) return;
-    std::string why;
-    if (!take_player(why)) return finish(false, ("take " + why).c_str());
-    focus_game();
-    if (!control_state().noclip) run_console("tcl");
-    // chase camera stops at 120 and aims at courier eye height, both crop mario
-    run_console("SetGS fChaseCameraMax 250");
-    run_console("player.SetAngle X 20");
-    ControlState cs = control_state();
-    logf("control take controls=%02X noclip=%d hidden=%d", cs.controls, cs.noclip, cs.hidden);
-    if (!cs.noclip) return finish(false, "noclip");
-    spawn_drawn_mario(c, 0);
+    if (g_ctl.cell) return control_frame();
+    g_ctl.cell = settle_cell();
+    if (g_ctl.cell) take_control();
 }
 
 void on_frame() {
@@ -413,6 +461,7 @@ void on_frame() {
     else if (g_config.scenario == "render") tick_render_scenario();
     else if (g_config.scenario == "control") tick_control_scenario(kControl);
     else if (g_config.scenario == "menugate") tick_control_scenario(kMenugate);
+    else if (g_config.scenario == "release") tick_control_scenario(kRelease);
     if (!g_done && !g_config.scenario.empty() && g_frames >= kScenarioTimeout) finish(false, "timeout");
 }
 
