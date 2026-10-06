@@ -1,6 +1,7 @@
 #include "core/arrival.h"
 #include "core/attack.h"
 #include "core/audio.h"
+#include "core/builder.h"
 #include "core/config.h"
 #include "core/dds.h"
 #include "core/frame.h"
@@ -30,6 +31,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <string>
 #include <windows.h>
@@ -384,6 +386,8 @@ struct Sim {
     Frame frame{};
     fnv::TESObjectCELL *cell = nullptr;
     int32_t id = -1;
+    // counts the places mario has been stood in, a build from an earlier one is dropped
+    int gen = 0;
     int ticks = 0, arrive_until = -1;
     // references with a shape when the world was last gathered
     int refs = 0;
@@ -395,6 +399,17 @@ Sim g_sim;
 SurfaceWindow g_window{{}, 0, 0};
 Regather g_regather{kRegatherMove};
 DoorPoses g_doors;
+Builder g_builder;
+// the gather whose surfaces are being built, with the place as it was walked
+struct Pending {
+    int gen = -1, tick = 0, refs = 0, off = 0, turned = 0;
+    Vec3 center{};
+    float moved = 0, walk_ms = 0;
+    size_t tris = 0, decoded = 0, culled = 0;
+    const char *why = "";
+    std::vector<DoorPoses::Pose> doors;
+};
+Pending g_pending;
 std::vector<uint32_t> g_owners;
 uint32_t g_solid;
 uint32_t g_window_loads;
@@ -567,8 +582,10 @@ void log_collision(const CollisionStats &st, size_t tris, const SurfaceStats &ss
 
 void sync_window(Vec3 feet) {
     if (!g_window.update(feet)) return;
+    double t0 = seconds_now();
     load_window(g_window);
     g_window_loads++;
+    if (float ms = (seconds_now() - t0) * 1000; ms >= 1) logf("collision window load tick=%d ms=%.1f loaded=%u", g_sim.ticks, ms, (unsigned)g_window.loaded().size());
 }
 
 void log_window(const char *when) {
@@ -590,44 +607,73 @@ std::string distrust(const CollisionStats &st) {
     return buf;
 }
 
-struct Gathered {
-    size_t tris;
-    // bodies found away from their nodes and turned away from them
-    int off, turned;
-    // spent walking the engine and spent building surfaces
-    float walk_ms, build_ms;
-};
+Gather to_build(std::vector<Tri> tris) {
+    return {g_sim.frame, std::move(tris), kWindowRadius * g_config.scale, kFaceReach * g_config.scale};
+}
 
-// collision around center in mario's frame, a refusal keeps the set that was there
+// the built surfaces become the world, with the place as it was when they were walked
+void install(Built &b, Vec3 center, int refs, std::vector<DoorPoses::Pose> doors) {
+    g_owners = std::move(b.owners), g_solid = std::ranges::count(b.fixed, true);
+    g_window = std::move(b.window);
+    g_regather.loaded(center);
+    g_sim.refs = refs;
+    g_doors.loaded(std::move(doors));
+}
+
+// collision around center, walked and built this frame, a refusal keeps what was there
 // the first gather in a place logs what it found, a take by hand also writes it out
-Gathered gather_world(Vec3 center, bool first, bool dump = false) {
+bool gather_world(Vec3 center, bool first, bool dump = false) {
     CollisionStats st;
-    double t0 = seconds_now();
     std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
-    SurfaceStats ss;
-    std::vector<uint32_t> kept;
-    double t1 = seconds_now();
-    std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &kept);
-    float walk_ms = (t1 - t0) * 1000, build_ms = (seconds_now() - t1) * 1000;
     if (dump) write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
-    if (first) log_collision(st, tris.size(), ss);
     std::string why = distrust(st);
     if (!why.empty()) {
         logf("refused: %s", why.c_str());
         g_regather.refused(g_sim.ticks);
-        return {0, st.scale.off, st.turn.off, walk_ms, build_ms};
+        return false;
     }
-    std::vector<bool> fixed;
-    g_owners.clear(), g_solid = 0;
-    for (uint32_t i : kept) g_owners.push_back(tris[i].owner), fixed.push_back(tris[i].solid), g_solid += tris[i].solid;
-    g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale, fixed);
-    g_regather.loaded(center);
-    g_sim.refs = st.refs;
-    g_doors.loaded(door_poses(g_sim.cell));
-    return {tris.size(), st.scale.off, st.turn.off, walk_ms, build_ms};
+    size_t count = tris.size();
+    Built b = build_world(to_build(std::move(tris)));
+    if (first) log_collision(st, count, b.stats);
+    g_sim.gen++;
+    install(b, center, st.refs, door_poses(g_sim.cell));
+    return true;
+}
+
+void log_regather(bool ok, float ms, const Built *b, int wait) {
+    const Pending &p = g_pending;
+    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d why=%s walk=%.1f build=%.1f window=%.1f "
+         "decoded=%u culled=%u wait=%d",
+         g_sim.ticks, p.moved, ms, ok, (unsigned)p.tris, p.off, p.turned, p.why, p.walk_ms, b ? b->build_ms : 0.0f,
+         b ? b->window_ms : 0.0f, (unsigned)p.decoded, (unsigned)p.culled, wait);
+}
+
+// the engine is walked here and now, the surfaces are built on the builder's thread
+void start_regather(Vec3 center, const char *why) {
+    double t0 = seconds_now();
+    CollisionStats st;
+    std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
+    g_pending = {g_sim.gen, g_sim.ticks, st.refs, st.scale.off, st.turn.off, center, g_regather.moved(center),
+                 float((seconds_now() - t0) * 1000), tris.size(), st.decoded, st.culled, why, door_poses(g_sim.cell)};
+    std::string bad = distrust(st);
+    if (!bad.empty()) {
+        logf("refused: %s", bad.c_str());
+        g_regather.refused(g_sim.ticks);
+        return log_regather(false, g_pending.walk_ms, nullptr, 0);
+    }
+    g_builder.start(to_build(std::move(tris)));
+}
+
+void finish_regather(Built &b) {
+    if (g_pending.gen != g_sim.gen) return logf("collision dropped tick=%d gen=%d now=%d", g_sim.ticks, g_pending.gen, g_sim.gen);
+    double t0 = seconds_now();
+    install(b, g_pending.center, g_pending.refs, std::move(g_pending.doors));
+    log_regather(true, g_pending.walk_ms + float((seconds_now() - t0) * 1000), &b, g_sim.ticks - g_pending.tick);
 }
 
 void regather_when_far() {
+    if (std::optional<Built> b = g_builder.take()) finish_regather(*b);
+    if (g_builder.busy()) return;
     Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos);
     // a place just arrived in is gathered again when more of it has loaded and once at the end
     int left = g_sim.arrive_until - g_sim.ticks;
@@ -635,12 +681,7 @@ void regather_when_far() {
     // what was gathered has a door where it stood then, however it was opened
     bool swung = g_sim.ticks % kDoorLookTicks == 0 && g_doors.changed(door_poses(g_sim.cell));
     const char *why = g_regather.due(m, g_sim.ticks) ? "far" : arriving ? "arrive" : swung ? "door" : nullptr;
-    if (!why) return;
-    double t0 = seconds_now();
-    float moved = g_regather.moved(m);
-    Gathered g = gather_world(m, false);
-    logf("collision regather tick=%d moved=%.1f ms=%.1f ok=%d tris=%u off=%d turned=%d why=%s walk=%.1f build=%.1f",
-         g_sim.ticks, moved, (seconds_now() - t0) * 1000, g.tris != 0, (unsigned)g.tris, g.off, g.turned, why, g.walk_ms, g.build_ms);
+    if (why) start_regather(m, why);
 }
 
 bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
@@ -649,7 +690,7 @@ bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
     Vec3 at{p->pos[0] + std::sin(h) * ahead, p->pos[1] + std::cos(h) * ahead, p->pos[2]};
     g_sim.frame = {at, g_config.scale};
     g_sim.cell = cell;
-    if (!gather_world(at, true, dump).tris) return false;
+    if (!gather_world(at, true, dump)) return false;
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_window_loads = 0, g_stall = {}, g_fit = {}, g_trail.clear();
     sync_window(s);

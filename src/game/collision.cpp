@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 #include <utility>
 
 namespace sm64nv {
@@ -68,6 +69,26 @@ float turn_error(const Xf &a, const Xf &b) {
     return err;
 }
 
+struct StripBounds {
+    uint32_t nvert, ntri;
+    Vec3 lo, hi;
+};
+
+// the box around a strips' own points, one per data since every placed copy shares it
+std::unordered_map<const void *, StripBounds> g_strips;
+
+const StripBounds &strip_bounds(const void *data, uint32_t nvert, uint32_t ntri, const float *verts) {
+    auto it = g_strips.find(data);
+    if (it != g_strips.end() && it->second.nvert == nvert && it->second.ntri == ntri) return it->second;
+    StripBounds b{nvert, ntri, {INFINITY, INFINITY, INFINITY}, {-INFINITY, -INFINITY, -INFINITY}};
+    for (uint32_t i = 0; i < nvert; i++) {
+        const float *v = verts + i * 3;
+        b.lo = {std::fmin(b.lo.x, v[0]), std::fmin(b.lo.y, v[1]), std::fmin(b.lo.z, v[2])};
+        b.hi = {std::fmax(b.hi.x, v[0]), std::fmax(b.hi.y, v[1]), std::fmax(b.hi.z, v[2])};
+    }
+    return g_strips[data] = b;
+}
+
 // a reference with a shape in the scene that is not the player
 bool shown(const fnv::TESObjectREFR *ref) {
     return ref && ref->renderState && ref->renderState->niNode && fnv::vtbl_of(ref) != fnv::kVtblPlayerCharacter;
@@ -86,11 +107,23 @@ struct Walker {
 
     void keep(Vec3 a, Vec3 b, Vec3 c, bool solid = false) {
         Tri t{a, b, c, owner, solid};
+        stats.decoded++;
         if (reaches(t, lo, hi)) out.push_back(t);
     }
 
     void emit_all(const Xf &xf, const std::vector<Tri> &tris) {
         for (const Tri &t : tris) keep(to_game(xf, t.a), to_game(xf, t.b), to_game(xf, t.c), t.solid);
+    }
+
+    // no point of the strips, placed and scaled the same way, comes into the gather box
+    bool apart(const StripBounds &b, Vec3 scale, const Xf &xf) const {
+        Vec3 min{INFINITY, INFINITY, INFINITY}, max{-INFINITY, -INFINITY, -INFINITY};
+        for (int i = 0; i < 8; i++) {
+            Vec3 c = to_game(xf, {(i & 1 ? b.hi.x : b.lo.x) * scale.x, (i & 2 ? b.hi.y : b.lo.y) * scale.y, (i & 4 ? b.hi.z : b.lo.z) * scale.z});
+            min = {std::fmin(min.x, c.x), std::fmin(min.y, c.y), std::fmin(min.z, c.z)};
+            max = {std::fmax(max.x, c.x), std::fmax(max.y, c.y), std::fmax(max.z, c.z)};
+        }
+        return max.x < lo.x || min.x > hi.x || max.y < lo.y || min.y > hi.y || max.z < lo.z || min.z > hi.z;
     }
 
     void packed_strips(const void *s, const Xf &xf) {
@@ -99,6 +132,10 @@ struct Walker {
         uint32_t ntri = at<uint32_t>(data, 0x08), nvert = at<uint32_t>(data, 0x0C);
         const uint16_t *tris = at<const uint16_t *>(data, 0x14);
         const float *verts = at<const float *>(data, 0x18);
+        if (apart(strip_bounds(data, nvert, ntri, verts), scale, xf)) {
+            stats.culled++;
+            return;
+        }
         std::vector<Vec3> v;
         for (uint32_t i = 0; i < nvert; i++)
             v.push_back(to_game(xf, {verts[i * 3] * scale.x, verts[i * 3 + 1] * scale.y, verts[i * 3 + 2] * scale.z}));

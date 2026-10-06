@@ -12,6 +12,8 @@ namespace sm64nv {
 
 struct CollisionStats {
     int cells = 0, refs = 0, bodies = 0, keyframed = 0;
+    // triangles read before the box kept some, and strips skipped by their bounds
+    size_t decoded = 0, culled = 0;
     // quarters of a cell's ground and how far the worst sits from where it is drawn
     int land_quads = 0;
     float land_max_err = 0;
