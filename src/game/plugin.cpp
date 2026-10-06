@@ -71,6 +71,13 @@ const int kRestoreTicks = 10;
 const float kDoorReach = 150;
 // how long a used door swings and how often the world is gathered again meanwhile
 const int kDoorSwingTicks = 60, kDoorLookTicks = 15;
+// a place just arrived in may still be loading, so it is looked at again for this long
+const int kArriveLookTicks = 120;
+const uint32_t kActIdle = 0x0C400201;
+// sm64 units, the game sets the player down a little over the ground at some doors
+const float kStandDrop = 150;
+// frames between tries to stand mario in a new place, and how many before giving up
+const int kSeatEvery = 4, kSeatFrames = 600;
 
 struct ScriptLine {
     int tick;
@@ -128,7 +135,7 @@ const ScriptLine kLeaveScript[] = {
     {200, "HoldKey 17"}, {210, "ReleaseKey 17"}, {225, "HoldKey 50"}, {228, "ReleaseKey 50"},
     {245, "player.SetAngle Z 180"}, {255, "HoldKey 17"}, {270, "ReleaseKey 17"},
 };
-const Move kLeaveMoves[] = {{"mario", 40, 55}, {"courier", 200, 210}, {"again", 255, 270}};
+const Move kLeaveMoves[] = {{"mario", 40, 55}, {"saloon", 200, 210}, {"courier", 255, 270}};
 const int kLeaveShots[] = {215, 272};
 const ControlScript kLeave{kLeaveScript, kLeaveMoves, kLeaveShots, 285};
 
@@ -171,6 +178,39 @@ const ScriptLine kPrimmScript[] = {
     {240, "ReleaseKey 17"}, {250, "spot far"},
 };
 const ControlScript kPrimm{kPrimmScript, {}, {}, 260};
+
+// a road to an airport, a running jump over a burned out car and a run at a chain link fence
+const ScriptLine kAirportScript[] = {
+    {45, "cow WastelandNV -5 16"},
+    {200, "player.SetAngle Z 341.6"}, {202, "mario -19781 66160 4340 341.6"},
+    {232, "HoldKey 17"}, {241, "HoldKey 57"}, {255, "ReleaseKey 57"}, {290, "ReleaseKey 17"}, {300, "spot car"},
+    {305, "player.SetAngle Z 90"}, {307, "mario -19880 67752 4350 90"}, {335, "HoldKey 17"}, {385, "ReleaseKey 17"},
+    {395, "spot fence"},
+};
+const ControlScript kAirport{kAirportScript, {}, {}, 405};
+// off the pavement in front of an office block, twice, where each kerb used to start a slide
+const ScriptLine kKerbScript[] = {
+    {40, "player.SetAngle Z 136"}, {42, "mario 2832.8 41906.4 4480 136"}, {70, "HoldKey 17"}, {95, "ReleaseKey 17"},
+    {105, "spot kerb_a"},
+    {110, "player.SetAngle Z 152"}, {112, "mario 2790.2 41663.9 4480 152"}, {140, "HoldKey 17"}, {165, "ReleaseKey 17"},
+    {175, "spot kerb_b"},
+};
+const ControlScript kKerb{kKerbScript, {}, {}, 185};
+// across a terminal hall whose floor is two triangles far larger than what is gathered
+const ScriptLine kTerminalScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "mario 2641.3 1308 18260 90"}, {66, "state"}, {70, "spot hall"}, {72, "HoldKey 17"},
+    {112, "ReleaseKey 17"}, {122, "spot hall_far"},
+};
+const int kTerminalShots[] = {68};
+const ControlScript kTerminal{kTerminalScript, {}, kTerminalShots, 132};
+// out of the house by its door and straight back in by the door outside
+const ScriptLine kInoutScript[] = {
+    {45, "mario 2380 1560 7360 90"}, {55, "HoldKey 18"}, {58, "ReleaseKey 18"},
+    {150, "state"}, {160, "doors"}, {162, "mario -73280 1297 8760 270"}, {185, "HoldKey 18"}, {188, "ReleaseKey 18"},
+    {280, "state"},
+};
+const int kInoutShots[] = {155, 285};
+const ControlScript kInout{kInoutScript, {}, kInoutShots, 300};
 
 #define PAD_IDLE "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0000"
 #define PAD_DPAD_DOWN "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"
@@ -261,7 +301,9 @@ struct Sim {
     Frame frame{};
     fnv::TESObjectCELL *cell = nullptr;
     int32_t id = -1;
-    int ticks = 0, swing_until = -1;
+    int ticks = 0, swing_until = -1, arrive_until = -1;
+    // references with a shape when the world was last gathered
+    int refs = 0;
     SM64MarioState state{};
     Vec3 run_start{}, run_mid{};
     float floor_z = 0, min_z = 0;
@@ -291,6 +333,8 @@ struct Control {
     int frames = 0, tick = 0, restore_check = 0;
     uint32_t action = 0;
     bool started = false, placed = false, blocked = false;
+    // frames spent with the player still mario's and no mario, 0 when he has one or is let go
+    int carry = 0;
     Press toggle, activate;
     ControlState saved{};
     fnv::TESObjectCELL *cell = nullptr;
@@ -446,14 +490,15 @@ struct Gathered {
 };
 
 // collision around center in mario's frame, a refusal keeps the set that was there
-// the first gather of a take also logs what it found and writes it out
-Gathered gather_world(Vec3 center, bool first) {
+// the first gather in a place logs what it found, a take by hand also writes it out
+Gathered gather_world(Vec3 center, bool first, bool dump = false) {
     CollisionStats st;
     std::vector<Tri> tris = gather_collision(g_sim.cell, center, kCollisionRadius, st);
     SurfaceStats ss;
     std::vector<uint32_t> kept;
     std::vector<SM64Surface> surfaces = build_surfaces(g_sim.frame, tris, ss, &kept);
-    if (first) write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris), log_collision(st, tris.size(), ss);
+    if (dump) write_obj((g_dir + "sm64nv_collision.obj").c_str(), tris);
+    if (first) log_collision(st, tris.size(), ss);
     std::string why = distrust(st);
     if (!why.empty()) {
         logf("refused: %s", why.c_str());
@@ -465,6 +510,7 @@ Gathered gather_world(Vec3 center, bool first) {
     for (uint32_t i : kept) g_owners.push_back(tris[i].owner), fixed.push_back(tris[i].solid), g_solid += tris[i].solid;
     g_window = SurfaceWindow(std::move(surfaces), kWindowRadius * g_config.scale, kFaceReach * g_config.scale, fixed);
     g_regather.loaded(center);
+    g_sim.refs = st.refs;
     return {tris.size(), st.scale.off, st.turn.off};
 }
 
@@ -472,7 +518,10 @@ void regather_when_far() {
     Vec3 m = to_game(g_sim.frame, g_ticks.cur_pos);
     // what was gathered still has a door he just used where it was
     bool swinging = g_sim.ticks <= g_sim.swing_until && (g_sim.swing_until - g_sim.ticks) % kDoorLookTicks == 0;
-    if (!g_regather.due(m, g_sim.ticks) && !swinging) return;
+    // a place just arrived in is gathered again when more of it has loaded and once at the end
+    int left = g_sim.arrive_until - g_sim.ticks;
+    bool arriving = left >= 0 && left % kDoorLookTicks == 0 && (!left || loaded_refs(g_sim.cell) != g_sim.refs);
+    if (!g_regather.due(m, g_sim.ticks) && !swinging && !arriving) return;
     double t0 = seconds_now();
     float moved = g_regather.moved(m);
     Gathered g = gather_world(m, false);
@@ -480,13 +529,13 @@ void regather_when_far() {
          (seconds_now() - t0) * 1000, g.tris != 0, (unsigned)g.tris, g.off, g.turned);
 }
 
-bool start_mario(fnv::TESObjectCELL *cell, float ahead) {
+bool start_mario(fnv::TESObjectCELL *cell, float ahead, bool dump = false) {
     fnv::TESObjectREFR *p = fnv::player();
     float h = p->rot[2];
     Vec3 at{p->pos[0] + std::sin(h) * ahead, p->pos[1] + std::cos(h) * ahead, p->pos[2]};
     g_sim.frame = {at, g_config.scale};
     g_sim.cell = cell;
-    if (!gather_world(at, true).tris) return false;
+    if (!gather_world(at, true, dump).tris) return false;
     Vec3 s = to_sm64(g_sim.frame, {at.x, at.y, at.z + 60});
     g_window_loads = 0, g_stall = {}, g_fit = {}, g_trail.clear();
     sync_window(s);
@@ -572,13 +621,16 @@ Vec3 draw_mario() {
 
 bool taken() { return g_sim.id >= 0; }
 
+// the player is mario's, also between two places while there is no mario
+bool held() { return taken() || g_ctl.carry; }
+
 void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
 }
 
-bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why) {
-    if (!start_mario(c, ahead)) why = "mario_create";
+bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
+    if (!start_mario(c, ahead, dump)) why = "mario_create";
     else if (!mario_mesh_create(kTexturePath, why)) why = "mesh " + why;
     if (!why.empty()) drop_mario();
     frame_seconds();
@@ -630,7 +682,7 @@ void take_control() {
     g_ctl.restore_check = 0;
     // mario comes first so a place he cannot stand in leaves the courier as he was
     std::string why;
-    if (!spawn_drawn_mario(c, 0, why) || !take_player(g_ctl.saved, why)) return refuse_take(why);
+    if (!spawn_drawn_mario(c, 0, why, true) || !take_player(g_ctl.saved, why)) return refuse_take(why);
     focus_game();
     if (!sound_ready() && sound_open(why)) logf("sound open rate=%d", kAudioRate);
     else if (!sound_ready()) logf("sound unavailable reason=%s", why.c_str());
@@ -653,7 +705,7 @@ void release_control(const char *reason) {
     // letting go by hand is often the way out of a bad spot, so say how he got there
     if (!strcmp(reason, "key")) log_trail();
     drop_mario();
-    g_ctl.placed = false;
+    g_ctl.placed = false, g_ctl.carry = 0;
     mario_mesh_hide();
     release_player(g_ctl.saved);
     if (control_state().noclip != g_ctl.saved.noclip) run_console("tcl");
@@ -807,6 +859,8 @@ void control_tick() {
         else if (!strcmp(line.line, "doors")) log_doors();
         else if (!strcmp(line.line, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
+            logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
+            logf("body chain tick=%d %s", t, node_chain(fnv::player()->renderState->niNode).c_str());
             if (!log_camera(m, cam)) return finish(false, "camera");
         }
         else if (!strncmp(line.line, "spot ", 5))
@@ -854,24 +908,61 @@ float player_gap() {
     return g_ctl.placed ? std::hypot(p.x - g_ctl.last.x, p.y - g_ctl.last.y, p.z - g_ctl.last.z) : 0;
 }
 
+// a door or a jump by the game takes mario's world away, the player stays his on the way
+void carry_over(const char *reason) {
+    drop_mario();
+    mario_mesh_hide();
+    g_ctl.placed = false, g_ctl.carry = 1;
+    logf("control carry tick=%d reason=%s from=%s", g_ctl.tick, reason, xyz(g_ctl.last).c_str());
+}
+
 // the cell under the player changes with doors, loads and plain walking outdoors
 void follow_cell() {
     fnv::TESObjectCELL *c = loaded_cell();
     float gap = player_gap();
-    if (place(c) != g_ctl.place) return release_control("cell");
-    if (gap > kMovedGap) {
-        logf("control moved tick=%d gap=%.1f to=%s", g_ctl.tick, gap, xyz(player_pos()).c_str());
-        g_arrival.again();
-        return release_control("moved");
-    }
+    if (place(c) != g_ctl.place) return carry_over("cell");
+    if (gap > kMovedGap) return carry_over("moved");
     if (c == g_ctl.cell) return;
     g_ctl.cell = g_sim.cell = c;
     logf("control crossed tick=%d id=%08X", g_ctl.tick, c->form.refID);
 }
 
+// through a door he is simply there, on the floor under the player and facing his way
+void stand_mario() {
+    Vec3 feet = to_sm64(g_sim.frame, player_pos());
+    float floor = sm64_surface_find_floor_height(feet.x, feet.y, feet.z);
+    sm64_set_mario_faceangle(g_sim.id, sm64_yaw_from_heading(fnv::player()->rot[2]));
+    // no floor within a step of the player's feet leaves him to drop in as on a take
+    if (floor < feet.y - kStandDrop) return;
+    sm64_set_mario_position(g_sim.id, feet.x, floor, feet.z);
+    sm64_set_mario_action(g_sim.id, kActIdle);
+    g_ticks.reset({feet.x, floor, feet.z});
+    logf("control stood tick=%d at=%s under_player=%.1f", g_ctl.tick, xyz(to_game(g_sim.frame, g_ticks.cur_pos)).c_str(),
+         (feet.y - floor) / g_sim.frame.scale);
+}
+
+// stands mario where the game put the player once that place is loaded
+void seat_mario() {
+    fnv::TESObjectCELL *c = loaded_cell();
+    hide_body();
+    if (!c || g_ctl.blocked) return;
+    int frames = g_ctl.carry++;
+    std::string why;
+    if (frames % kSeatEvery == 1 && spawn_drawn_mario(c, 0, why)) {
+        g_ctl.cell = c, g_ctl.place = place(c), g_ctl.carry = 0;
+        g_sim.arrive_until = g_sim.ticks + kArriveLookTicks;
+        stand_mario();
+        run_console("player.SetAngle X 20");
+        logf("control seated tick=%d id=%08X frames=%d", g_ctl.tick, c->form.refID, frames);
+    } else if (frames >= kSeatFrames) {
+        logf("refused: seat frames=%d cell=%08X", frames, c->form.refID);
+        release_control("lost");
+    }
+}
+
 void control_frame() {
-    if (g_ctl.placed) g_ctl.max_gap = std::fmax(g_ctl.max_gap, player_gap()), g_ctl.frames++;
     if (taken()) follow_cell();
+    if (g_ctl.placed) g_ctl.max_gap = std::fmax(g_ctl.max_gap, player_gap()), g_ctl.frames++;
     Pad pad;
     bool toggle, activate;
     if (!read_game_pad(pad, toggle, activate)) return finish(false, "input_globals");
@@ -882,14 +973,15 @@ void control_frame() {
     bool blocked = menu_mode();
     if (blocked != g_ctl.blocked) logf("control gate tick=%d blocked=%d menu=%d", g_ctl.tick, blocked, menu_mode());
     g_ctl.blocked = blocked;
-    if (g_ctl.toggle.edge(toggle) && !blocked) taken() ? release_control("key") : take_control();
+    if (g_ctl.toggle.edge(toggle) && !blocked) held() ? release_control("key") : take_control();
     if (g_ctl.activate.edge(activate) && !blocked && taken()) use_door();
     if (g_done) return;
     run_ticks(control_tick);
     if (taken() && !blocked && sound_ready()) sound_pump();
     // a console line run this frame may have sent the player somewhere else already
     if (taken()) follow_cell();
-    if (g_config.autotake && g_arrival.frame(place(loaded_cell()), blocked, taken())) {
+    if (g_ctl.carry) seat_mario();
+    if (g_config.autotake && g_arrival.frame(place(loaded_cell()), blocked, held())) {
         logf("control arrive tick=%d id=%08X", g_ctl.tick, loaded_cell()->form.refID);
         take_control();
     }
@@ -930,6 +1022,10 @@ void on_frame() {
     else if (g_config.scenario == "outside") tick_control_scenario(kOutside);
     else if (g_config.scenario == "windmill") tick_control_scenario(kWindmill);
     else if (g_config.scenario == "primm") tick_control_scenario(kPrimm);
+    else if (g_config.scenario == "airport") tick_control_scenario(kAirport);
+    else if (g_config.scenario == "kerb") tick_control_scenario(kKerb);
+    else if (g_config.scenario == "terminal") tick_control_scenario(kTerminal);
+    else if (g_config.scenario == "inout") tick_control_scenario(kInout);
     else if (g_config.scenario == "gamepad") tick_control_scenario(kGamepad);
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
@@ -952,7 +1048,7 @@ void on_load_game(bool ok) {
 void on_message(nvse::Message *m) {
     if (m->type == nvse::kMessagePostLoad) on_post_load();
     else if (m->type == nvse::kMessageMainGameLoop) on_frame();
-    else if (m->type == nvse::kMessagePreLoadGame && taken()) release_control("load");
+    else if (m->type == nvse::kMessagePreLoadGame && held()) release_control("load");
     // the load result travels as the pointer value itself
     else if (m->type == nvse::kMessagePostLoadGame && g_ready) on_load_game(m->data != nullptr);
 }

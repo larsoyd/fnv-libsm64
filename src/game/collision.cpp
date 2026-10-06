@@ -68,6 +68,11 @@ float turn_error(const Xf &a, const Xf &b) {
     return err;
 }
 
+// a reference with a shape in the scene that is not the player
+bool shown(const fnv::TESObjectREFR *ref) {
+    return ref && ref->renderState && ref->renderState->niNode && fnv::vtbl_of(ref) != fnv::kVtblPlayerCharacter;
+}
+
 struct Walker {
     Vec3 lo, hi;
     std::vector<Tri> &out;
@@ -215,8 +220,7 @@ struct Walker {
         stats.cells++;
         for (auto *it = &cell->objectList; it; it = it->next) {
             fnv::TESObjectREFR *ref = it->data;
-            if (!ref || !ref->renderState || !ref->renderState->niNode) continue;
-            if (fnv::vtbl_of(ref) == fnv::kVtblPlayerCharacter) continue;
+            if (!shown(ref)) continue;
             stats.refs++;
             owner = ref->form.refID;
             node(ref->renderState->niNode, 0);
@@ -236,23 +240,34 @@ struct Walker {
 
 }
 
+// the cell itself indoors, outdoors every cell of the grid that has its references attached
+template <typename F> void each_cell(fnv::TESObjectCELL *cell, F visit) {
+    if (cell->interior()) return visit(cell);
+    const void *grid = at<const void *>(*reinterpret_cast<void **>(fnv::kTES), 0x08);
+    if (!rtti_is(grid, ".?AVGridCellArray@@")) return;
+    auto *cells = at<fnv::TESObjectCELL *const *>(grid, 0x10);
+    uint32_t n = std::min(at<uint32_t>(grid, 0x0C), kMaxGrid);
+    for (uint32_t i = 0; i < n * n; i++)
+        if (fnv::vtbl_of(cells[i]) == fnv::kVtblTESObjectCELL && cells[i]->cellState == kCellAttached) visit(cells[i]);
+}
+
 std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 c, float r, CollisionStats &stats) {
     std::vector<Tri> out;
     Walker w{{c.x - r, c.y - r, c.z - r}, {c.x + r, c.y + r, c.z + r}, out, stats};
-    if (cell->interior()) {
-        w.refs(cell);
-        return out;
-    }
-    const void *grid = at<const void *>(*reinterpret_cast<void **>(fnv::kTES), 0x08);
-    if (!rtti_is(grid, ".?AVGridCellArray@@")) return out;
-    auto *cells = at<fnv::TESObjectCELL *const *>(grid, 0x10);
-    uint32_t n = std::min(at<uint32_t>(grid, 0x0C), kMaxGrid);
-    for (uint32_t i = 0; i < n * n; i++) {
-        if (fnv::vtbl_of(cells[i]) != fnv::kVtblTESObjectCELL || cells[i]->cellState != kCellAttached) continue;
-        w.refs(cells[i]);
-        w.land(cells[i]);
-    }
+    each_cell(cell, [&](fnv::TESObjectCELL *one) {
+        w.refs(one);
+        if (!one->interior()) w.land(one);
+    });
     return out;
+}
+
+int loaded_refs(fnv::TESObjectCELL *cell) {
+    int n = 0;
+    each_cell(cell, [&](fnv::TESObjectCELL *one) {
+        for (auto *it = &one->objectList; it; it = it->next)
+            n += shown(it->data);
+    });
+    return n;
 }
 
 void write_obj(const char *path, const std::vector<Tri> &tris) {

@@ -25,6 +25,8 @@ struct CollisionStats {
 // static havok collision in game units, kept to the box around center
 // outdoors it covers every loaded cell and the ground
 std::vector<Tri> gather_collision(fnv::TESObjectCELL *cell, Vec3 center, float radius, CollisionStats &stats);
+// references with a shape in the cell or outdoors in every loaded one, cheap to ask often
+int loaded_refs(fnv::TESObjectCELL *cell);
 void write_obj(const char *path, const std::vector<Tri> &tris);
 
 }
