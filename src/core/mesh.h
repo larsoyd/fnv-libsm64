@@ -16,6 +16,9 @@ struct MeshOut {
     uint32_t tris = 0;
 };
 
+// every vertex back at the middle with no color, and no triangles
+void clear_mesh(MeshOut &out);
+
 // how a shape sits under its parent node, rotation as three rows
 struct Placing {
     float rot[9];

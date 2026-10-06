@@ -54,6 +54,7 @@ Config parse_config(const std::string &text) {
         else if (key == "frames") ok = parse_count(value, c.frames);
         else if (key == "autotake") ok = parse_flag(value, c.autotake);
         else if (key == "punch") ok = parse_float(value, c.punch);
+        else if (key == "particles") ok = parse_flag(value, c.particles);
         else {
             c.errors.push_back("unknown key=" + key + " line=" + std::to_string(line));
             continue;

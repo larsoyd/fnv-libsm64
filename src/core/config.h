@@ -15,6 +15,7 @@ struct Config {
     bool autotake = false;
     // damage of one punch before the target's armour
     float punch = 20;
+    bool particles = true;
     std::vector<std::string> errors;
 };
 

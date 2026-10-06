@@ -4,7 +4,9 @@
 
 namespace sm64nv {
 
-// libsm64's rgba atlas widened to a power of two as an uncompressed bgra dds
+// rgba rows as an uncompressed bgra dds, padded on the right out to wide
+std::vector<uint8_t> rgba_dds(const uint8_t *rgba, uint32_t w, uint32_t h, uint32_t wide);
+// libsm64's atlas widened to a power of two
 std::vector<uint8_t> atlas_dds(const uint8_t *rgba);
 
 }

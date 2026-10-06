@@ -5,7 +5,7 @@
 
 namespace sm64nv {
 
-static void clear(MeshOut &out) {
+void clear_mesh(MeshOut &out) {
     const size_t n = 3 * SM64_GEO_MAX_TRIANGLES;
     out.pos.assign(n, {0, 0, 0});
     out.normal.assign(n, {0, 0, 1});
@@ -30,7 +30,7 @@ static Vec3 normal(const SM64MarioGeometryBuffers &g, size_t i) {
 }
 
 void convert_mesh(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 anchor, Vec3 to_light, MeshOut &out) {
-    clear(out);
+    clear_mesh(out);
     out.tris = g.numTrianglesUsed;
     Vec3 l = unit(to_light);
     for (size_t i = 0; i < 3 * (size_t)g.numTrianglesUsed; i++) {
@@ -46,7 +46,7 @@ void convert_mesh(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 anchor
 }
 
 void convert_decal(const Frame &f, const SM64MarioGeometryBuffers &g, Vec3 anchor, Vec3 to_light, MeshOut &out) {
-    clear(out);
+    clear_mesh(out);
     Vec3 l = unit(to_light);
     const float k = (float)SM64_TEXTURE_WIDTH / kAtlasWidth;
     size_t o = 0;
