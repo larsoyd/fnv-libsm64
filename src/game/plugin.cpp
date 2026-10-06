@@ -188,7 +188,12 @@ std::string read_text(const std::string &path) {
     return {b.begin(), b.end()};
 }
 
-void libsm64_print(const char *msg) { logf("libsm64 %s", msg); }
+// libsm64's audio code prints on every note
+MessageKinds g_lib_messages(64);
+
+void libsm64_print(const char *msg) {
+    if (g_lib_messages.first(msg)) logf("libsm64 %s", msg);
+}
 
 void on_post_load() {
     g_config = parse_config(read_text(g_dir + "Data\\NVSE\\Plugins\\sm64nv.ini"));
@@ -475,8 +480,8 @@ void control_tick() {
         logf("screenshot requested tick=%d menu=%d", t, menu_mode());
     }
     if (t % kStatusTicks == 0)
-        logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X", t, g_frames, taken(), g_ctl.blocked,
-             xyz(m).c_str(), g_sim.state.action);
+        logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X lib_msgs=%u", t, g_frames, taken(),
+             g_ctl.blocked, xyz(m).c_str(), g_sim.state.action, (unsigned)g_lib_messages.total());
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
     ControlState cs = control_state();

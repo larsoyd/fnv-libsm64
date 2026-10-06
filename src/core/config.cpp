@@ -1,5 +1,6 @@
 #include "config.h"
 
+#include <cctype>
 #include <cstdlib>
 
 namespace sm64nv {
@@ -53,6 +54,19 @@ Config parse_config(const std::string &text) {
     }
     if (c.rom.empty()) c.errors.push_back("missing key=rom");
     return c;
+}
+
+bool MessageKinds::first(const std::string &msg) {
+    total_++;
+    std::string key;
+    for (size_t i = 0; i < msg.size();) {
+        size_t j = i;
+        bool digit = false;
+        while (j < msg.size() && isxdigit((unsigned char)msg[j])) digit |= isdigit((unsigned char)msg[j]) != 0, j++;
+        if (j == i) key += msg[i++];
+        else key += digit ? "#" : msg.substr(i, j - i), i = j;
+    }
+    return seen_.size() < cap_ && seen_.insert(key).second;
 }
 
 }
