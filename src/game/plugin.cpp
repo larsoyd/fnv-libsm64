@@ -155,6 +155,19 @@ const ScriptLine kTableScript[] = {
     {125, "HoldKey 17"}, {137, "ReleaseKey 17"}, {142, "spot table_c"},
 };
 const ControlScript kTable{kTableScript, {}, {}, 150};
+// holds the sound device to see the stall recovery bring the stream back for the next jump
+const ScriptLine kSoundScript[] = {
+    {40, "HoldKey 57"}, {43, "ReleaseKey 57"}, {70, "sound pause"}, {105, "sound status"},
+    {110, "HoldKey 57"}, {113, "ReleaseKey 57"}, {140, "sound status"},
+};
+const ControlScript kSound{kSoundScript, {}, {}, 150};
+// six seconds in the pause menu with the stream idle, then a jump has to be heard again
+const ScriptLine kSoundPauseScript[] = {
+    {40, "HoldKey 57"}, {43, "ReleaseKey 57"}, {60, "sound status"}, {65, "HoldKey 1"}, {68, "ReleaseKey 1"},
+    {245, "HoldKey 1"}, {248, "ReleaseKey 1"}, {260, "sound status"}, {265, "HoldKey 57"}, {268, "ReleaseKey 57"},
+    {295, "sound status"},
+};
+const ControlScript kSoundPause{kSoundPauseScript, {}, {}, 305};
 
 // tab opens the pip-boy and closes it again
 const ScriptLine kPipboyScript[] = {
@@ -548,6 +561,12 @@ uint64_t unix_ms() {
 
 uint64_t g_sound_from;
 
+void log_sound_status() {
+    SoundStats st = sound_take_stats();
+    logf("sound status written=%u done=%u queued=%u peak=%d errors=%u resets=%u", st.written, st.done, st.queued, st.peak,
+         st.errors, st.resets);
+}
+
 void log_sound(const char *name) {
     SoundStats st = sound_take_stats();
     uint64_t now = unix_ms();
@@ -594,6 +613,8 @@ void control_tick() {
         // pad lines are for the virtual gamepad that follows this log
         if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
         else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
+        else if (!strcmp(line.line, "sound pause")) sound_pause();
+        else if (!strcmp(line.line, "sound status")) log_sound_status();
         else if (!strcmp(line.line, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             if (!log_camera(m, cam)) return finish(false, "camera");
@@ -611,6 +632,7 @@ void control_tick() {
         logf("control status tick=%d frames=%u taken=%d blocked=%d pos=%s action=%08X lib_msgs=%u", t, g_frames, taken(),
              g_ctl.blocked, xyz(m).c_str(), g_sim.state.action, (unsigned)g_lib_messages.total());
     if (t % kStatusTicks == 0 && taken()) log_window("status");
+    if (t % kStatusTicks == 0 && sound_ready()) log_sound_status();
     if (t < s.end) return;
     if (!log_camera(m, cam)) return finish(false, "camera");
     ControlState cs = control_state();
@@ -689,6 +711,8 @@ void on_frame() {
     else if (g_config.scenario == "walls") tick_control_scenario(kWalls);
     else if (g_config.scenario == "steep") tick_control_scenario(kSteep);
     else if (g_config.scenario == "table") tick_control_scenario(kTable);
+    else if (g_config.scenario == "sound") tick_control_scenario(kSound);
+    else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     // play runs until the game closes once it has the player
     bool endless = g_config.scenario == "play" && g_ctl.cell;
