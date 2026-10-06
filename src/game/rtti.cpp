@@ -8,8 +8,9 @@ namespace sm64nv {
 static const uintptr_t kRdataLo = 0x00FDF000, kRdataHi = 0x0118204C;
 static const uintptr_t kDataLo = 0x01183000, kDataHi = 0x01271A9C;
 
-static bool in_rdata(uintptr_t p, uintptr_t n) { return p >= kRdataLo && p + n <= kRdataHi; }
-static bool in_data(uintptr_t p, uintptr_t n) { return p >= kDataLo && p + n <= kDataHi; }
+// compared this way round so a pointer near the top of memory cannot wrap past the end
+static bool in_rdata(uintptr_t p, uintptr_t n) { return p >= kRdataLo && p <= kRdataHi - n; }
+static bool in_data(uintptr_t p, uintptr_t n) { return p >= kDataLo && p <= kDataHi - n; }
 static uintptr_t word(uintptr_t p) { return *reinterpret_cast<const uintptr_t *>(p); }
 
 static uintptr_t locator_of(const void *obj) {
