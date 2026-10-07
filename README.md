@@ -57,7 +57,7 @@ with `refused:`.
 | Punch, dive (B) | Shift or left mouse button | X |
 | Crouch (Z) | Ctrl | Either trigger |
 | Go through the nearest door | E | Y |
-| Camera | Mouse (untested without a controller) | Right stick |
+| Camera | Mouse | Right stick |
 
 Mario ignores input while a menu, the Pip-Boy or the console is open.
 
