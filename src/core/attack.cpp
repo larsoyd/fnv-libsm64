@@ -108,6 +108,14 @@ void stomp_bounce(int32_t id, const SM64MarioState &st) {
     sm64_play_sound_global(kSoundBounce);
 }
 
+// game units, a person up to 1.3 times the usual 132 can be squashed
+static const float kSquashTallest = 172;
+
+StompOutcome stomp_outcome(const StompTarget &t) {
+    if (!t.hostile) return StompOutcome::bounce;
+    return t.person && t.humanoid && t.height <= kSquashTallest ? StompOutcome::squash : StompOutcome::hit;
+}
+
 // sm64's goomba loses this much height a tick down to its flattest, then spreads out
 static const float kSquashStep = 0.14f, kFlattest = 0.3f, kSpread = 1.7f;
 

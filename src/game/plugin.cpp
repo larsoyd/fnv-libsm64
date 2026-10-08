@@ -368,11 +368,13 @@ const ControlScript kFinisher{kFinisherScript, {}, kFinisherShots, 240};
 // mario dropped on a settler's head and then on a coyote's
 const ScriptLine kStompScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "of 00104F02 SetRestrained 1"},
-    {60, "actors 600"}, {65, "over 200 90 00104F02"}, {86, "flat_beside -140 0 90"}, {120, "actors 600"},
-    {125, "player.PlaceAtMe 00168D08 1"}, {140, "of 00168D08 SetRestrained 1"}, {145, "actors 600"}, {150, "over 190 90 00168D08"}, {200, "actors 600"},
+    {60, "actors 600"}, {65, "over 200 90 00104F02"}, {90, "of 00104F02 SetAV Aggression 3"},
+    {116, "flat_beside -140 0 90"}, {150, "actors 600"},
+    {155, "player.PlaceAtMe 00168D08 1"}, {170, "of 00168D08 SetRestrained 1"}, {172, "of 00168D08 SetAV Aggression 3"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
+    {230, "actors 600"},
 };
-const int kStompShots[] = {64, 92};
-const ControlScript kStomp{kStompScript, {}, kStompShots, 210};
+const int kStompShots[] = {64, 122};
+const ControlScript kStomp{kStompScript, {}, kStompShots, 240};
 // the saloon: who is there, a doorway with a bare strip, a coyote without bounds
 const ScriptLine kSaloonScript[] = {
     {40, "actors 3000"}, {45, "player.SetAngle Z 0"}, {47, "mario -385 40 3456 0"}, {60, "spot south"},
@@ -1185,7 +1187,7 @@ const int kSquashTicks = 30;
 void restrain(fnv::TESObjectREFR *actor, bool on) { g_console->runScriptLine(on ? "SetRestrained 1" : "SetRestrained 0", actor); }
 
 // the highest mario gets in the ticks after a stomp, a low ceiling can cut the bounce short
-const int kBounceLook = 8;
+const int kBounceLook = 3;
 struct BounceLook {
     int at = -1;
     float from = 0, peak = 0;
@@ -1210,18 +1212,22 @@ void land_stomps(int t, Stomp move, Vec3 was) {
     stomp_bounce(g_sim.id, g_sim.state);
     sm64_play_sound_global(kSoundStomped);
     fnv::TESObjectREFR *a = hit->ref;
-    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s", t, hit->body.id, is_person(a) ? "squash" : "hit", peak - hit->body.feet.z,
-         xyz(now).c_str());
+    int disposition;
+    bool hostile = hostile_to_player(a, disposition);
+    float head = head_height(a);
+    StompOutcome out = stomp_outcome({hostile, is_person(a), skeleton_of(a).root && head > 0, hit->body.height});
+    static const char *kOutcomes[] = {"bounce", "hit", "squash"};
+    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s hostile=%d disposition=%d", t, hit->body.id, kOutcomes[(int)out],
+         peak - hit->body.feet.z, xyz(now).c_str(), hostile, disposition);
     g_bounce = {t + kBounceLook, now.z, now.z};
-    if (!is_person(a)) {
+    if (out == StompOutcome::hit) {
         float before = actor_health(a), dealt = strike(a, attack_profile(Attack::pound).damage * g_config.punch * unarmed_scale(actor_unarmed(fnv::player())));
         logf("attack hit tick=%d kind=stomp ref=%08X damage=%.1f health=%.1f>%.1f", t, hit->body.id, dealt, before, actor_health(a));
-        return;
     }
+    if (out != StompOutcome::squash) return;
     restrain(a, true);
-    g_squashed.push_back({hit->body.id, t, skeleton_of(a), head_height(a)});
-    logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, g_squashed.back().skeleton.root != nullptr,
-         g_squashed.back().head);
+    g_squashed.push_back({hit->body.id, t, skeleton_of(a), head});
+    logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, g_squashed.back().skeleton.root != nullptr, head);
 }
 
 // the squashed flatten like sm64's goombas, then die as the player's kill

@@ -43,6 +43,14 @@ bool stomps(float peak, Vec3 was, Vec3 now, const ActorBody &target, float scale
 // sends mario back up off a head with sm64's own bounce, he has landed on it already
 void stomp_bounce(int32_t id, const SM64MarioState &st);
 
+// what mario lands on, and what landing on it does
+struct StompTarget {
+    bool hostile, person, humanoid;
+    float height;
+};
+enum class StompOutcome { bounce, hit, squash };
+StompOutcome stomp_outcome(const StompTarget &t);
+
 // how flat and how wide a stomped person is so many ticks after
 struct Squash {
     float height, width;

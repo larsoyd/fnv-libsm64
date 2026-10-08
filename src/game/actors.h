@@ -44,6 +44,9 @@ float head_height(fnv::TESObjectREFR *actor);
 // where the body's middle is drawn, a fallen body leaves its reference behind
 bool pelvis_at(fnv::TESObjectREFR *actor, Vec3 &out);
 
+// whether the game says the actor should fight the player, and its disposition
+bool hostile_to_player(fnv::TESObjectREFR *actor, int &disposition);
+
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
 float actor_max_health(fnv::TESObjectREFR *actor);

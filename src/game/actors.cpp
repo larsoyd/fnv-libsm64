@@ -23,6 +23,7 @@ using HitStep = void(__thiscall *)(void *, uint32_t);
 using TakeHit = void(__thiscall *)(void *, void *, char);
 using ActorValue = float(__thiscall *)(void *, uint32_t);
 using Shove = void(__thiscall *)(void *, void *, float, float, float, float);
+using ShouldAttack = bool(__thiscall *)(void *, void *, char, int *, char);
 
 template <typename F> F engine(uintptr_t addr) { return reinterpret_cast<F>(addr); }
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
@@ -124,6 +125,11 @@ bool pelvis_at(fnv::TESObjectREFR *actor, Vec3 &out) {
     void *pelvis = find_node(actor->renderState->niNode, "Bip01 Pelvis");
     if (pelvis) out = field<Vec3>(pelvis, 0x8C);
     return pelvis != nullptr;
+}
+
+bool hostile_to_player(fnv::TESObjectREFR *actor, int &disposition) {
+    disposition = 0;
+    return engine<ShouldAttack>(0x008B06D0)(actor, fnv::player(), 0, &disposition, 0);
 }
 
 bool actor_standing(const fnv::TESObjectREFR *actor) {
