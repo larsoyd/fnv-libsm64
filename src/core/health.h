@@ -14,6 +14,7 @@ class HealthWatch {
 public:
     HealthChange tick(float health, bool alive = true);
     bool primed() const { return primed_; }
+    bool dead() const { return primed_ && !alive_; }
 
 private:
     bool primed_ = false, alive_ = false;

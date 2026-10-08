@@ -357,9 +357,10 @@ const Move kHurtMoves[] = {{"bitten", 260, 290}};
 const ControlScript kHurt{kHurtScript, kHurtMoves, {}, 360};
 // the courier dies while mario has him
 const ScriptLine kDeathScript[] = {
-    {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
+    {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"}, {130, "overlay"}, {156, "hudshot"}, {190, "hudshot"},
+    {200, "overlay"},
 };
-const ControlScript kDeath{kDeathScript, {}, {}, 130};
+const ControlScript kDeath{kDeathScript, {}, {}, 320};
 // three settlers in a row up the street and a slide kick through them
 const ScriptLine kBowlingScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"},
@@ -513,6 +514,7 @@ Thrown g_thrown;
 HealthWatch g_health;
 uint16_t g_meter;
 PowerMeter g_hud;
+DeathScene g_death;
 // the pictures the overlay holds for the power meter and bowser's head, and whether it draws
 int g_meter_picture = -1, g_bowser_picture = -1;
 bool g_overlay;
@@ -970,7 +972,7 @@ void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
     g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
-    g_health = {}, g_meter = 0, g_hud = {};
+    g_health = {}, g_meter = 0, g_hud = {}, g_death = {};
     g_squashed.clear(), g_fall_peak = 0, g_late.clear(), g_placed.clear();
 }
 
@@ -1050,8 +1052,8 @@ void release_control(const char *reason) {
     mario_mesh_hide();
     release_player(g_ctl.saved);
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
-    // a save load replaces what was put back, and a death shows the body the game's way
-    g_ctl.restore_check = strcmp(reason, "load") && strcmp(reason, "dead") ? g_ctl.tick + kRestoreTicks : 0;
+    // a save load replaces what was put back so there is nothing to read back
+    g_ctl.restore_check = strcmp(reason, "load") ? g_ctl.tick + kRestoreTicks : 0;
 }
 
 void check_restored() {
@@ -1225,7 +1227,10 @@ void land_blows(int t) {
     }
 }
 
-const int32_t kSoundAttacked = 0x240AFF81, kSoundPowerMeter = 0x700D0081;
+const int32_t kSoundAttacked = 0x240AFF81, kSoundPowerMeter = 0x700D0081, kSoundBowserLaugh = 0x70188081;
+const uint32_t kActStandingDeath = 0x00021311, kActDeathOnBack = 0x00021316;
+// a blow this far past death throws him on his back
+const float kOverkill = -20;
 
 void log_health(const char *what) {
     fnv::TESObjectREFR *p = fnv::player();
@@ -1247,17 +1252,31 @@ void watch_health(int t) {
         logf("hurt tick=%d lost=%.1f health=%.1f max=%.1f meter=%03X", t, c.lost, health, max, meter);
         sm64_play_sound_global(kSoundAttacked);
     }
-    if (c.died) log_health("dead"), release_control("dead");
-    // sm64 sounds its meter when wedges come back
-    if (taken() && g_hud.tick(g_meter >> 8)) sm64_play_sound_global(kSoundPowerMeter);
+    if (c.died) log_health("dead");
+    // mario dies as in sm64, the game's own reload of the last save lets the courier go
+    DeathCue cue = g_death.tick(!g_health.dead());
+    if (cue == DeathCue::fall) {
+        uint32_t act = health <= kOverkill ? kActDeathOnBack : kActStandingDeath;
+        sm64_set_mario_action(g_sim.id, act);
+        logf("death tick=%d cue=fall action=%08X health=%.1f", t, act, health);
+    } else if (cue == DeathCue::laugh) {
+        sm64_play_sound_global(kSoundBowserLaugh);
+        logf("death tick=%d cue=laugh", t);
+    }
+    // sm64 sounds its meter when wedges come back, a dead man's is empty
+    if (g_hud.tick(g_death.dying() ? 0 : g_meter >> 8)) sm64_play_sound_global(kSoundPowerMeter);
 }
 
-// what the overlay draws this frame: the power meter while it shows, nothing in a menu
+// what the overlay draws: the power meter while it shows and not in a menu, then the wipe
 void show_hud() {
     int w, h;
     overlay_size(w, h);
     std::vector<OverlayQuad> quads;
-    if (taken() && !g_ctl.blocked && g_hud.shown() && h > 0) quads.push_back({meter_quad(g_hud.y(), g_hud.wedges(), w, h), g_meter_picture});
+    bool wiping = taken() && g_death.wipe_frame() >= 0 && h > 0;
+    if (taken() && !g_ctl.blocked && !wiping && g_hud.shown() && h > 0) quads.push_back({meter_quad(g_hud.y(), g_hud.wedges(), w, h), g_meter_picture});
+    // bowser's wipe takes the place of the meter and covers every menu
+    if (wiping)
+        for (const HudQuad &q : wipe_quads(g_death.wipe_frame(), w, h)) quads.push_back({q, q.textured ? g_bowser_picture : -1});
     overlay_set(std::move(quads));
 }
 
@@ -1465,7 +1484,7 @@ void control_tick() {
     int t = ++g_ctl.tick;
     if (taken()) {
         // menus and the console still see the keys, mario must not
-        Pad pad = g_ctl.blocked ? Pad{} : g_ctl.pad;
+        Pad pad = g_ctl.blocked || g_death.dying() ? Pad{} : g_ctl.pad;
         // the tick he lands on has him on his feet already, so the fall is judged before it
         Stomp move = stomp_move(g_sim.state.action, g_sim.state.velocity[1]);
         Vec3 was = mario_pos();
