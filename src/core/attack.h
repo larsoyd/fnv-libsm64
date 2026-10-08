@@ -23,8 +23,6 @@ struct AttackProfile {
     float push;
     // game units under mario's feet the throw comes from, which lifts the target off the ground
     float lift = 0;
-    // throws every time, not only once the last throw's victim had time to get up
-    bool always_throws = false;
 };
 AttackProfile attack_profile(Attack kind);
 // what the game's melee skill curve makes of a blow, half at no skill and whole at 100
@@ -78,13 +76,18 @@ private:
 };
 
 // a thrown target is left alone for a while so it can get up
+// what a blow that throws meets, its size in game units and whether the blow kills it
+struct ThrowTarget {
+    uint32_t id;
+    float height, length;
+    bool kills;
+};
+
 class Thrown {
 public:
     static constexpr int kTicks = 150;
-    // true when the target may be thrown now, which also starts its rest
-    bool allow(uint32_t target, int tick);
-    // a throw that does not wait for the rest still starts one
-    void mark(uint32_t target, int tick) { last_[target] = tick; }
+    // true when the blow may knock the target down, which starts its rest
+    bool allow(const ThrowTarget &t, int tick);
     bool resting(uint32_t target, int tick) const;
     void clear() { last_.clear(); }
 

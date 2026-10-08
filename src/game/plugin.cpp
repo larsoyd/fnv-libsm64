@@ -460,6 +460,23 @@ const ControlScript kOptions{kOptionsScript, {}, kOptionsShots, 110};
 // three points of damage, less than a wedge of the courier's health
 const ScriptLine kScratchScript[] = {{56, "overlay"}, {60, "player.DamageAV Health 3"}, {75, "overlay"}};
 const ControlScript kScratch{kScratchScript, {}, {}, 85};
+// the punches and the closing kick twice on one settler, once he is up again
+const ScriptLine kStunOnceScript[] = {
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
+    {60, "beside -70 0 90 00104F02"}, {64, "of 00104F02 SetRestrained 0"}, {70, "HoldKey 42"}, {72, "ReleaseKey 42"},
+    {76, "HoldKey 42"}, {78, "ReleaseKey 42"}, {82, "HoldKey 42"}, {84, "ReleaseKey 42"}, {100, "body 00104F02"},
+    {260, "body 00104F02"}, {262, "of 00104F02 SetRestrained 1"}, {265, "beside -70 0 90 00104F02"}, {268, "of 00104F02 SetRestrained 0"},
+    {270, "HoldKey 42"}, {272, "ReleaseKey 42"}, {276, "HoldKey 42"}, {278, "ReleaseKey 42"}, {282, "HoldKey 42"},
+    {284, "ReleaseKey 42"}, {300, "body 00104F02"},
+};
+const ControlScript kStunOnce{kStunOnceScript, {}, {}, 310};
+// the punches and the closing kick on the quarry's deathclaw, facing it before each
+const ScriptLine kBigStunScript[] = {
+    {20, "player.moveto 000E62E5"}, {22, "tgm"}, {80, "face 000E62E5 70"}, {82, "HoldKey 42"}, {84, "ReleaseKey 42"},
+    {86, "face 000E62E5 70"}, {88, "HoldKey 42"}, {90, "ReleaseKey 42"}, {92, "face 000E62E5 70"}, {94, "HoldKey 42"},
+    {96, "ReleaseKey 42"}, {120, "actors 600"},
+};
+const ControlScript kBigStun{kBigStunScript, {}, {}, 130};
 // doc mitchell squashed and blown apart, then the save from before brings him back whole
 const ScriptLine kReloadScript[] = {
     {40, "SaveGame sm64nvsquash"}, {60, "of 00104C0F SetRestrained 1"}, {62, "body 00104C0F"}, {64, "over 200 90 00104C0F"},
@@ -1328,8 +1345,8 @@ void land_blows(int t) {
     for (const LiveActor &a : g_near) {
         if (!attack_reaches(p, feet, LastFit::kHeight / scale, heading, a.body) || !g_swing.lands(a.body.id)) continue;
         // the game throws only the living, so the blow lands after the throw and a corpse flies on
-        bool thrown = p.push > 0 && (p.always_throws || g_thrown.allow(a.body.id, t));
-        if (thrown) g_thrown.mark(a.body.id, t);
+        ThrowTarget meets{a.body.id, a.body.height, 2 * std::fmax(a.body.half_width, a.body.half_length), asked >= actor_health(a.ref)};
+        bool thrown = p.push > 0 && g_thrown.allow(meets, t);
         if (thrown) logf("attack push tick=%d ref=%08X force=%.1f ok=%d", t, a.body.id, p.push, shove(a.ref, {feet.x, feet.y, feet.z - p.lift}, p.push));
         if (thrown) g_late.push_back({a.body.id, t + kStrikeAfterThrow, now, asked, unarmed, skill});
         else deal(t, a, now, asked, unarmed, skill);
@@ -1909,6 +1926,8 @@ void on_frame() {
     else if (g_config.scenario == "spare") tick_control_scenario(kSpare);
     else if (g_config.scenario == "reload") tick_control_scenario(kReload);
     else if (g_config.scenario == "scratch") tick_control_scenario(kScratch);
+    else if (g_config.scenario == "stunonce") tick_control_scenario(kStunOnce);
+    else if (g_config.scenario == "bigstun") tick_control_scenario(kBigStun);
     else if (g_config.scenario == "options") tick_control_scenario(kOptions);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);

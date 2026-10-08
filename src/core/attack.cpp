@@ -43,9 +43,9 @@ AttackProfile attack_profile(Attack kind) {
     case Attack::kick:
         return {1.2f, kReach * 1.15f, 0.5f, 6};
     case Attack::finisher:
-        return {1.2f, kReach * 1.15f, 0.5f, kFinisherPush, kFinisherLift, true};
+        return {1.2f, kReach * 1.15f, 0.5f, kFinisherPush, kFinisherLift};
     case Attack::slide:
-        return {1.2f, kReach * 1.15f, 0.5f, kSlidePush, kSlideLift, true};
+        return {1.2f, kReach * 1.15f, 0.5f, kSlidePush, kSlideLift};
     case Attack::dive:
         return {1.1f, kReach * 1.35f, 0.25f, 5};
     case Attack::pound:
@@ -145,9 +145,14 @@ bool Thrown::resting(uint32_t target, int tick) const {
     return it != last_.end() && tick - it->second < kTicks;
 }
 
-bool Thrown::allow(uint32_t target, int tick) {
-    if (resting(target, tick)) return false;
-    mark(target, tick);
+// game units, up to 1.3 times a person goes over, anything bigger stands firm
+static const float kThrownLargest = 172;
+
+bool Thrown::allow(const ThrowTarget &t, int tick) {
+    if (t.height > kThrownLargest || t.length > kThrownLargest) return false;
+    // knocked down once, after that only a killing blow throws the body
+    if (last_.contains(t.id) && !t.kills) return false;
+    last_[t.id] = tick;
     return true;
 }
 
