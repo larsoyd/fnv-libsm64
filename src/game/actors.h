@@ -58,6 +58,8 @@ struct Awareness {
     fnv::TESObjectREFR *target = nullptr;
 };
 Awareness awareness_of_player(fnv::TESObjectREFR *actor);
+// who the actor is fighting, null when nobody
+fnv::TESObjectREFR *combat_target(fnv::TESObjectREFR *actor);
 
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);

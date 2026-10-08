@@ -382,6 +382,15 @@ const ScriptLine kTrooperScript[] = {
     {310, "health"},
 };
 const ControlScript kTrooper{kTrooperScript, {}, {}, 320};
+// a gecko hunting the hills by goodsprings, mario stands near and does nothing
+const ScriptLine kGeckoScript[] = {
+    {20, "player.moveto 0016518D"}, {80, "face 0016518D 250"}, {86, "spot near"}, {90, "aware 1500"}, {120, "aware 1500"},
+    {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"}, {240, "aware 1500"}, {270, "aware 1500"},
+    {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"}, {390, "aware 1500"}, {82, "actors 1500"},
+    {150, "actors 1500"}, {250, "actors 1500"}, {88, "health"}, {250, "health"}, {410, "health"},
+    {160, "spot after"},
+};
+const ControlScript kGecko{kGeckoScript, {}, {}, 420};
 // pounds on a friend, on him frenzied, on an essential foe, then with bloody mess owned
 const ScriptLine kPoundScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
@@ -879,15 +888,19 @@ void log_puffs() {
 }
 
 // whoever stands near mario this tick, as shapes he cannot walk through
+// mario passes through the downed and through those fighting him, so bites reach him
+bool solid_to_mario(const LiveActor &a) {
+    return !knocked(a.ref) && !g_thrown.resting(a.body.id, g_ctl.tick) && combat_target(a.ref) != fnv::player();
+}
+
 void sync_actors() {
     g_actor_stats = {};
     g_near = nearby_actors(g_sim.cell, to_game(g_sim.frame, g_ticks.cur_pos), kActorReach, g_actor_stats);
     // one being squashed is flat, so he is not in mario's way nor hit again
     std::erase_if(g_near, [](const LiveActor &a) { return std::ranges::any_of(g_squashed, [&](const Squashed &q) { return q.id == a.body.id; }); });
     std::vector<ActorBody> bodies;
-    // someone thrown or knocked down lies on the ground, mario slides and runs over him
     for (const LiveActor &a : g_near)
-        if (!knocked(a.ref) && !g_thrown.resting(a.body.id, g_ctl.tick)) bodies.push_back(a.body);
+        if (solid_to_mario(a)) bodies.push_back(a.body);
     g_boxes.sync(g_sim.frame, bodies);
 }
 
@@ -1396,10 +1409,11 @@ void log_actors(float reach) {
     logf("control actors tick=%d near=%u seen=%d far=%d down=%d unsized=%d boxes=%u", g_ctl.tick, (unsigned)found.size(), st.seen,
          st.away, st.down, st.unsized, (unsigned)g_boxes.size());
     for (const LiveActor &a : found)
-        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d sized=%s", a.body.id,
+        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d sized=%s solid=%d", a.body.id,
              a.ref->baseForm->refID, a.ref->baseForm->typeID, xyz(a.body.feet).c_str(), a.body.heading * 180 / 3.14159265f,
              a.body.half_width, a.body.half_length, a.body.height,
-             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized);
+             std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized,
+             solid_to_mario(a));
 }
 
 void log_awareness(float reach) {
@@ -1784,6 +1798,7 @@ void on_frame() {
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
     else if (g_config.scenario == "bowling") tick_control_scenario(kBowling);
     else if (g_config.scenario == "trooper" || g_config.scenario == "usertrooper") tick_control_scenario(kTrooper);
+    else if (g_config.scenario == "gecko" || g_config.scenario == "usergecko") tick_control_scenario(kGecko);
     else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);

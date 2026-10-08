@@ -147,9 +147,11 @@ Awareness awareness_of_player(fnv::TESObjectREFR *actor) {
     char lost = 0, seen = 0;
     a.detect = engine<Detection>(0x008A0D10)(actor, 0, p, &lost, 0, 0, 0, &seen);
     a.lost = lost, a.seen = seen;
-    a.target = virt<CombatTarget>(actor, 0x42C)(actor);
+    a.target = combat_target(actor);
     return a;
 }
+
+fnv::TESObjectREFR *combat_target(fnv::TESObjectREFR *actor) { return virt<CombatTarget>(actor, 0x42C)(actor); }
 
 bool actor_standing(const fnv::TESObjectREFR *actor) {
     uint32_t life = at<uint32_t>(actor, 0x108);
