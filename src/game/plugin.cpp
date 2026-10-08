@@ -345,9 +345,12 @@ const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
 const ScriptLine kHurtScript[] = {
     {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00168D08 1"}, {55, "actor SetRestrained 1"},
     {60, "beside -85 0 90"}, {70, "actors 600"}, {75, "health"}, {80, "actor SetRestrained 0"}, {85, "actor StartCombat player"},
-    {150, "health"}, {150, "actors 600"}, {250, "health"}, {250, "actors 600"}, {350, "health"},
+    {150, "health"}, {150, "actors 600"}, {250, "health"}, {250, "actors 600"}, {260, "HoldKey 31"}, {290, "ReleaseKey 31"},
+    {350, "health"},
 };
-const ControlScript kHurt{kHurtScript, {}, {}, 360};
+// he walks away while the coyote is at him, a bite never stops him
+const Move kHurtMoves[] = {{"bitten", 260, 290}};
+const ControlScript kHurt{kHurtScript, kHurtMoves, {}, 360};
 // the courier dies while mario has him
 const ScriptLine kDeathScript[] = {
     {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
