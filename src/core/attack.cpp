@@ -7,14 +7,17 @@ namespace sm64nv {
 
 static const uint32_t kPunching = 0x00100000, kKicking = 0x00200000, kTripping = 0x00400000;
 static const float kReach = 90;
+// the kick that ends the punches throws a person some 260 units and 50 up
+static const float kFinisherPush = 60, kFinisherLift = 50;
 
 Attack attack_now(uint32_t action, uint32_t flags) {
     switch (action) {
     // one action runs two punches and then a kick or a sweep
     case 0x00800380:
     case 0x00800457:
+        return flags & (kKicking | kTripping) ? Attack::finisher : flags & kPunching ? Attack::punch : Attack::none;
     case 0x018008AC:
-        return flags & (kKicking | kTripping) ? Attack::kick : flags & kPunching ? Attack::punch : Attack::none;
+        return flags & kKicking ? Attack::kick : Attack::none;
     case 0x018008AA:
     case 0x0080045A:
         return Attack::kick;
@@ -37,6 +40,8 @@ AttackProfile attack_profile(Attack kind) {
         return {1, kReach, 0.5f, 0};
     case Attack::kick:
         return {1.2f, kReach * 1.15f, 0.5f, 6};
+    case Attack::finisher:
+        return {1.2f, kReach * 1.15f, 0.5f, kFinisherPush, kFinisherLift};
     case Attack::dive:
         return {1.1f, kReach * 1.35f, 0.25f, 5};
     case Attack::pound:

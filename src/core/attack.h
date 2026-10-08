@@ -7,7 +7,7 @@
 
 namespace sm64nv {
 
-enum class Attack { none, punch, kick, dive, pound };
+enum class Attack { none, punch, kick, dive, pound, finisher };
 
 // the blow mario is landing this tick, a punch or kick only counts while the limb is out
 Attack attack_now(uint32_t action, uint32_t flags);
@@ -21,6 +21,8 @@ struct AttackProfile {
     float cone;
     // how hard the target is thrown back, 0 leaves it standing
     float push;
+    // game units under mario's feet the throw comes from, which lifts the target off the ground
+    float lift = 0;
 };
 AttackProfile attack_profile(Attack kind);
 // what the game's melee skill curve makes of a blow, half at no skill and whole at 100

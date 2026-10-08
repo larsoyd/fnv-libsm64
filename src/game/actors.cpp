@@ -45,7 +45,8 @@ template <typename T> T at(const void *base, size_t off) {
 
 bool is_actor(const fnv::TESObjectREFR *ref) {
     uintptr_t vt = fnv::vtbl_of(ref);
-    return (vt == kVtblCharacter || vt == kVtblCreature) && ref->baseForm && ref->renderState && ref->renderState->niNode;
+    return (vt == kVtblCharacter || vt == kVtblCreature) && ref->baseForm && ref->renderState &&
+           ref->renderState->niNode;
 }
 
 bool usable(const float size[3]) {
@@ -119,6 +120,12 @@ float head_height(fnv::TESObjectREFR *actor) {
     return head ? field<float>(head, 0x94) - actor->pos[2] : -1;
 }
 
+bool pelvis_at(fnv::TESObjectREFR *actor, Vec3 &out) {
+    void *pelvis = find_node(actor->renderState->niNode, "Bip01 Pelvis");
+    if (pelvis) out = field<Vec3>(pelvis, 0x8C);
+    return pelvis != nullptr;
+}
+
 bool actor_standing(const fnv::TESObjectREFR *actor) {
     uint32_t life = at<uint32_t>(actor, 0x108);
     return life == kAlive || life == kRestrained;
@@ -161,6 +168,16 @@ bool shove(fnv::TESObjectREFR *target, Vec3 from, float force) {
     if (fnv::vtbl_of(process) != kVtblHighProcess) return false;
     virt<Shove>(process, 0x418)(process, target, from.x, from.y, from.z, force);
     return true;
+}
+
+fnv::TESObjectREFR *newest_of_base(fnv::TESObjectCELL *cell, uint32_t base) {
+    fnv::TESObjectREFR *best = nullptr;
+    for (fnv::TESObjectCELL *one : loaded_cells(cell))
+        for (auto *it = &one->objectList; it; it = it->next) {
+            fnv::TESObjectREFR *ref = it->data;
+            if (is_actor(ref) && ref->baseForm->refID == base && (!best || ref->form.refID > best->form.refID)) best = ref;
+        }
+    return best;
 }
 
 std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 c, float reach, ActorStats &stats) {

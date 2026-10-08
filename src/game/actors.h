@@ -18,6 +18,9 @@ struct ActorStats {
     int seen = 0, away = 0, down = 0, unsized = 0;
 };
 
+// the actor of a base form made last, standing or not, null when there is none
+fnv::TESObjectREFR *newest_of_base(fnv::TESObjectCELL *cell, uint32_t base);
+
 // characters and creatures on their feet within reach of center, nearest first
 std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 center, float reach, ActorStats &stats);
 
@@ -38,6 +41,8 @@ Skeleton skeleton_of(fnv::TESObjectREFR *actor);
 void squash_skeleton(const Skeleton &s, float height, float width);
 // how high the head is over the feet as the body is drawn, -1 without a head
 float head_height(fnv::TESObjectREFR *actor);
+// where the body's middle is drawn, a fallen body leaves its reference behind
+bool pelvis_at(fnv::TESObjectREFR *actor, Vec3 &out);
 
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
