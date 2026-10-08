@@ -58,11 +58,12 @@ std::vector<uint8_t> bowser_wipe_art(std::span<const uint8_t> rom) {
 // sm64's meter comes in at 166, rests at 200, stays 45 ticks once full and is gone past 300
 const int kMeterIn = 166, kMeterRest = 200, kMeterStay = 45, kMeterGone = 300, kMeterX = 140;
 
-bool PowerMeter::tick(int wedges) {
+bool PowerMeter::tick(int wedges, bool hurt) {
     bool rose = wedges > wedges_;
     wedges_ = wedges;
     if (state_ != State::hiding) {
-        if (wedges < 8 && state_ == State::hidden) state_ = State::emphasized, y_ = kMeterIn;
+        if ((wedges < 8 || hurt) && state_ == State::hidden) state_ = State::emphasized, y_ = kMeterIn;
+        if (hurt) timer_ = 0;
         // sm64 refills a wedge at a time and starts the wait at seven, a stimpak can skip it
         if (wedges == 8 && stored_ < 8) timer_ = 0;
         if (wedges == 8 && timer_ > kMeterStay) state_ = State::hiding;
@@ -118,7 +119,16 @@ std::vector<HudQuad> wipe_quads(int frame, int width, int height) {
 DeathCue DeathScene::tick(bool alive) {
     if (alive) return ticks_ = -1, DeathCue::none;
     if (ticks_ < 0) return ticks_ = 0, DeathCue::fall;
-    return ++ticks_ == kLaughTicks ? DeathCue::laugh : DeathCue::none;
+    return ++ticks_ == warp_ ? DeathCue::laugh : DeathCue::none;
+}
+
+// sm64's standing death, death on the back and on the stomach
+int death_warp_tick(uint32_t action) {
+    switch (action) {
+    case 0x00021316: return 54;
+    case 0x00021315: return 37;
+    default: return 80;
+    }
 }
 
 }

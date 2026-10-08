@@ -359,7 +359,7 @@ const Move kHurtMoves[] = {{"bitten", 260, 290}};
 const ControlScript kHurt{kHurtScript, kHurtMoves, {}, 360};
 // the courier dies while mario has him
 const ScriptLine kDeathScript[] = {
-    {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"}, {130, "overlay"}, {156, "hudshot"}, {190, "hudshot"},
+    {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"}, {130, "overlay"}, {182, "hudshot"}, {216, "hudshot"},
     {200, "overlay"},
 };
 const ControlScript kDeath{kDeathScript, {}, {}, 320};
@@ -457,6 +457,15 @@ const ScriptLine kOptionsScript[] = {
 };
 const int kOptionsShots[] = {55, 70, 95};
 const ControlScript kOptions{kOptionsScript, {}, kOptionsShots, 110};
+// three points of damage, less than a wedge of the courier's health
+const ScriptLine kScratchScript[] = {{56, "overlay"}, {60, "player.DamageAV Health 3"}, {75, "overlay"}};
+const ControlScript kScratch{kScratchScript, {}, {}, 85};
+// doc mitchell squashed and blown apart, then the save from before brings him back whole
+const ScriptLine kReloadScript[] = {
+    {40, "SaveGame sm64nvsquash"}, {60, "of 00104C0F SetRestrained 1"}, {62, "body 00104C0F"}, {64, "over 200 90 00104C0F"},
+    {80, "body 00104C0F"}, {140, "LoadGame sm64nvsquash"}, {300, "body 00104C0F"},
+};
+const ControlScript kReload{kReloadScript, {}, {}, 310};
 // mario dropped on a friendly settler's head
 const ScriptLine kStompScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
@@ -1054,6 +1063,7 @@ void drop_mario() {
     g_sim.id = -1;
     g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
     g_health = {}, g_meter = 0, g_hud = {}, g_death = {};
+    for (const Squashed &q : g_squashed) logf("squash undone ref=%08X ok=%d", q.id, end_squash(find_actor(g_sim.cell, q.id), q.skeleton));
     g_squashed.clear(), g_fall_peak = 0, g_late.clear(), g_placed.clear();
 }
 
@@ -1366,13 +1376,14 @@ void watch_health(int t) {
     if (cue == DeathCue::fall) {
         uint32_t act = health <= kOverkill ? kActDeathOnBack : kActStandingDeath;
         sm64_set_mario_action(g_sim.id, act);
+        g_death.warp_at(death_warp_tick(act));
         logf("death tick=%d cue=fall action=%08X health=%.1f", t, act, health);
     } else if (cue == DeathCue::laugh) {
         sm64_play_sound_global(kSoundBowserLaugh);
         logf("death tick=%d cue=laugh", t);
     }
     // sm64 sounds its meter when wedges come back, a dead man's is empty
-    if (g_hud.tick(g_death.dying() ? 0 : g_meter >> 8)) sm64_play_sound_global(kSoundPowerMeter);
+    if (g_hud.tick(g_death.dying() ? 0 : g_meter >> 8, c.lost > 0)) sm64_play_sound_global(kSoundPowerMeter);
 }
 
 // what the overlay draws: the power meter while it shows and not in a menu, then the wipe
@@ -1470,11 +1481,12 @@ void tick_squashed(int t) {
     std::vector<LiveActor> all = nearby_actors(g_sim.cell, mario_pos(), kActorReach, st);
     std::erase_if(g_squashed, [&](const Squashed &q) {
         auto it = std::ranges::find_if(all, [&](const LiveActor &a) { return a.body.id == q.id; });
-        if (it == all.end()) return logf("squash lost tick=%d ref=%08X", t, q.id), true;
+        if (it == all.end()) return logf("squash lost tick=%d ref=%08X undone=%d", t, q.id, end_squash(find_actor(g_sim.cell, q.id), q.skeleton)), true;
         Squash flat = squash_at(t - q.start);
         squash_skeleton(q.skeleton, flat.height, flat.width);
         if (t - q.start < kSquashTicks) return false;
         logf("squash done tick=%d ref=%08X head=%.1f>%.1f", t, q.id, q.head, head_height(it->ref));
+        end_squash(it->ref, q.skeleton);
         blow_apart(t, *it);
         return true;
     });
@@ -1518,8 +1530,8 @@ void log_body(const char *args) {
     fnv::TESObjectREFR *a = placed(strtoul(args, nullptr, 16));
     Vec3 p{};
     if (!a || !pelvis_at(a, p)) return finish(false, "body");
-    logf("actor body tick=%d ref=%08X pelvis=%s health=%.1f knocked=%d standing=%d gone=%04X", g_ctl.tick, a->form.refID, xyz(p).c_str(),
-         actor_health(a), knocked(a), actor_standing(a), limbs_gone(a));
+    logf("actor body tick=%d ref=%08X pelvis=%s health=%.1f knocked=%d standing=%d gone=%04X head=%.1f", g_ctl.tick, a->form.refID,
+         xyz(p).c_str(), actor_health(a), knocked(a), actor_standing(a), limbs_gone(a), head_height(a));
 }
 
 // places an actor of a base form at the player, which one it became shows once it has a body
@@ -1895,6 +1907,8 @@ void on_frame() {
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);
     else if (g_config.scenario == "spare") tick_control_scenario(kSpare);
+    else if (g_config.scenario == "reload") tick_control_scenario(kReload);
+    else if (g_config.scenario == "scratch") tick_control_scenario(kScratch);
     else if (g_config.scenario == "options") tick_control_scenario(kOptions);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);

@@ -137,6 +137,12 @@ void squash_skeleton(const Skeleton &s, float height, float width) {
     virt<UpdateDown>(s.squash, 0xA4)(s.squash, kUpdateData, 0);
 }
 
+bool end_squash(fnv::TESObjectREFR *actor, const Skeleton &s) {
+    if (!actor || !s.squash || skeleton_of(actor).root != s.root || field<void *>(s.root, 0x18) != s.squash) return false;
+    squash_skeleton(s, 1, 1);
+    return true;
+}
+
 float head_height(fnv::TESObjectREFR *actor) {
     void *head = find_node(actor->renderState->niNode, "Bip01 Head");
     return head ? field<float>(head, 0x94) - actor->pos[2] : -1;

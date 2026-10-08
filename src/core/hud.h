@@ -17,7 +17,8 @@ std::vector<uint8_t> bowser_wipe_art(std::span<const uint8_t> rom);
 class PowerMeter {
 public:
     // one 30 hz tick with the wedges to show, 1 to 8, true when they went up
-    bool tick(int wedges);
+    // a wound that takes no whole wedge still brings the meter up
+    bool tick(int wedges, bool hurt = false);
     bool shown() const { return state_ != State::hidden; }
     // n64 screen units up from the bottom to the middle of the picture
     int y() const { return y_; }
@@ -47,16 +48,20 @@ std::vector<HudQuad> wipe_quads(int frame, int width, int height);
 
 enum class DeathCue { none, fall, laugh };
 // mario falls when the courier dies, bowser laughs and the wipe starts later
+// the frame sm64 warps out of a death action on, when the laugh and the wipe start
+int death_warp_tick(uint32_t action);
+
 class DeathScene {
 public:
     DeathCue tick(bool alive);
+    // the tick after the fall the laugh comes on, from the death mario was given
+    void warp_at(int tick) { warp_ = tick; }
     bool dying() const { return ticks_ >= 0; }
     // the frame of the wipe, -1 before it starts
-    int wipe_frame() const { return ticks_ < kLaughTicks ? -1 : ticks_ - kLaughTicks; }
+    int wipe_frame() const { return ticks_ < warp_ ? -1 : ticks_ - warp_; }
 
 private:
-    static constexpr int kLaughTicks = 54;
-    int ticks_ = -1;
+    int ticks_ = -1, warp_ = 80;
 };
 
 }

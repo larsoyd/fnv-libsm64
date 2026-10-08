@@ -42,6 +42,9 @@ Skeleton skeleton_of(fnv::TESObjectREFR *actor);
 bool begin_squash(Skeleton &s);
 // height along the body's up and width along the ground, 1 puts it back as it was
 void squash_skeleton(const Skeleton &s, float height, float width);
+// the body back to its own shape, a later load can bring the same body back to life
+// false when the actor no longer has that skeleton under our node
+bool end_squash(fnv::TESObjectREFR *actor, const Skeleton &s);
 // how high the head is over the feet as the body is drawn, -1 without a head
 float head_height(fnv::TESObjectREFR *actor);
 // where the body's middle is drawn, a fallen body leaves its reference behind
