@@ -1292,7 +1292,7 @@ void land_stomps(int t, Stomp move, Vec3 was) {
     logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, g_squashed.back().skeleton.root != nullptr, head);
 }
 
-// the squashed flatten like sm64's goombas, then die as the player's kill
+// the squashed flatten like sm64's goombas, then burst apart as the player's kill
 void tick_squashed(int t) {
     if (g_squashed.empty()) return;
     ActorStats st;
@@ -1303,12 +1303,8 @@ void tick_squashed(int t) {
         Squash flat = squash_at(t - q.start);
         squash_skeleton(q.skeleton, flat.height, flat.width);
         if (t - q.start < kSquashTicks) return false;
-        float head = head_height(it->ref), before = actor_health(it->ref), dealt = strike(it->ref, before + 1000);
-        squash_skeleton(q.skeleton, 1, 1);
-        restrain(it->ref, false);
-        sm64_play_sound_global(kSoundSquashed);
-        logf("squash done tick=%d ref=%08X head=%.1f>%.1f damage=%.1f health=%.1f>%.1f standing=%d", t, q.id, q.head, head, dealt, before,
-             actor_health(it->ref), actor_standing(it->ref));
+        logf("squash done tick=%d ref=%08X head=%.1f>%.1f", t, q.id, q.head, head_height(it->ref));
+        blow_apart(t, *it);
         return true;
     });
 }
