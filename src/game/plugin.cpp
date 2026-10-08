@@ -7,6 +7,7 @@
 #include "core/frame.h"
 #include "core/geo.h"
 #include "core/health.h"
+#include "core/hud.h"
 #include "core/mesh.h"
 #include "core/puffs.h"
 #include "core/reach.h"
@@ -25,6 +26,7 @@
 #include "game/fnv.h"
 #include "game/log.h"
 #include "game/nvse.h"
+#include "game/overlay.h"
 #include "game/render.h"
 #include "game/sound.h"
 
@@ -344,9 +346,11 @@ const ControlScript kAttack{kAttackScript, {}, kAttackShots, 285};
 // a coyote made beside mario is set on the courier, whose health is mario's
 const ScriptLine kHurtScript[] = {
     {40, "player.SetAngle Z 90"}, {42, "player.PlaceAtMe 00168D08 1"}, {55, "actor SetRestrained 1"},
-    {60, "beside -85 0 90"}, {70, "actors 600"}, {75, "health"}, {80, "actor SetRestrained 0"}, {85, "actor StartCombat player"},
+    {60, "beside -85 0 90"}, {70, "actors 600"}, {75, "health"}, {76, "overlay"}, {78, "hudshot"}, {80, "actor SetRestrained 0"},
+    {85, "actor StartCombat player"}, {200, "overlay"}, {202, "hudshot"},
+    {300, "HoldKey 1"}, {303, "ReleaseKey 1"}, {310, "overlay"}, {330, "overlay"}, {332, "HoldKey 1"}, {335, "ReleaseKey 1"},
     {150, "health"}, {150, "actors 600"}, {250, "health"}, {250, "actors 600"}, {260, "HoldKey 31"}, {290, "ReleaseKey 31"},
-    {350, "health"},
+    {350, "health"}, {355, "overlay"},
 };
 // he walks away while the coyote is at him, a bite never stops him
 const Move kHurtMoves[] = {{"bitten", 260, 290}};
@@ -508,6 +512,10 @@ Swing g_swing;
 Thrown g_thrown;
 HealthWatch g_health;
 uint16_t g_meter;
+PowerMeter g_hud;
+// the pictures the overlay holds for the power meter and bowser's head, and whether it draws
+int g_meter_picture = -1, g_bowser_picture = -1;
+bool g_overlay;
 // a blow on an actor that was thrown, dealt once the throw has taken
 struct LateBlow {
     uint32_t id;
@@ -644,6 +652,10 @@ void on_post_load() {
     dds = rgba_dds(puffs.data(), kPuffAtlasWidth, kPuffCell, kPuffAtlasWidth);
     if (!write_file(path, dds)) return logf("refused: texture write path=%s", path.c_str());
     logf("texture written path=%s bytes=%u", path.c_str(), (unsigned)dds.size());
+    std::vector<uint8_t> meter = power_meter_art(g_rom), bowser = bowser_wipe_art(g_rom);
+    if (meter.empty() || bowser.empty()) return logf("refused: rom holds no power meter or bowser where they should be");
+    g_meter_picture = overlay_picture(std::move(meter), kHudPicture, kHudPicture * kMeterPictures);
+    g_bowser_picture = overlay_picture(std::move(bowser), kHudPicture, kHudPicture);
     g_ready = true;
 }
 
@@ -958,7 +970,7 @@ void drop_mario() {
     if (taken()) sm64_mario_delete(g_sim.id);
     g_sim.id = -1;
     g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
-    g_health = {}, g_meter = 0;
+    g_health = {}, g_meter = 0, g_hud = {};
     g_squashed.clear(), g_fall_peak = 0, g_late.clear(), g_placed.clear();
 }
 
@@ -1213,7 +1225,7 @@ void land_blows(int t) {
     }
 }
 
-const int32_t kSoundAttacked = 0x240AFF81;
+const int32_t kSoundAttacked = 0x240AFF81, kSoundPowerMeter = 0x700D0081;
 
 void log_health(const char *what) {
     fnv::TESObjectREFR *p = fnv::player();
@@ -1236,6 +1248,17 @@ void watch_health(int t) {
         sm64_play_sound_global(kSoundAttacked);
     }
     if (c.died) log_health("dead"), release_control("dead");
+    // sm64 sounds its meter when wedges come back
+    if (taken() && g_hud.tick(g_meter >> 8)) sm64_play_sound_global(kSoundPowerMeter);
+}
+
+// what the overlay draws this frame: the power meter while it shows, nothing in a menu
+void show_hud() {
+    int w, h;
+    overlay_size(w, h);
+    std::vector<OverlayQuad> quads;
+    if (taken() && !g_ctl.blocked && g_hud.shown() && h > 0) quads.push_back({meter_quad(g_hud.y(), g_hud.wedges(), w, h), g_meter_picture});
+    overlay_set(std::move(quads));
 }
 
 const int32_t kSoundStomped = 0x50308081, kSoundSquashed = 0x5060B081;
@@ -1322,6 +1345,12 @@ void tick_squashed(int t) {
         blow_apart(t, *it);
         return true;
     });
+}
+
+void log_overlay() {
+    OverlayStats st = overlay_take_stats();
+    logf("overlay tick=%d hooked=%d presents=%u drawn=%u captured=%u size=%dx%d meter_shown=%d meter_y=%d wedges=%d", g_ctl.tick, g_overlay,
+         st.presents, st.drawn, st.captured, st.width, st.height, g_hud.shown(), g_hud.y(), g_hud.wedges());
 }
 
 void log_actors(float reach) {
@@ -1489,6 +1518,12 @@ void control_tick() {
         else if (!strncmp(line.line, "open ", 5)) open_door(line.line + 5);
         else if (!strcmp(line.line, "puffs")) log_puffs();
         else if (!strcmp(line.line, "health")) log_health("status");
+        else if (!strcmp(line.line, "overlay")) log_overlay();
+        else if (!strcmp(line.line, "hudshot")) {
+            char name[64];
+            snprintf(name, sizeof name, "ScreenShotSM64_%03d.bmp", t);
+            overlay_capture(g_dir + name);
+        }
         else if (!strncmp(line.line, "body ", 5)) log_body(line.line + 5);
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
@@ -1629,6 +1664,7 @@ void control_frame() {
     // a console line run this frame may have sent the player somewhere else already
     if (taken()) follow_cell();
     if (g_ctl.carry) seat_mario();
+    show_hud();
     if (g_config.autotake && g_arrival.frame(place(loaded_cell()), blocked, held())) {
         logf("control arrive tick=%d id=%08X", g_ctl.tick, loaded_cell()->form.refID);
         take_control();
@@ -1656,6 +1692,12 @@ void tick_control_scenario(const ControlScript &script) {
 void on_frame() {
     if (!g_ready || g_done) return;
     g_frames++;
+    if (g_frames == 1) {
+        std::string why;
+        g_overlay = overlay_hook(why);
+        if (g_overlay) logf("overlay hook ok=1");
+        else logf("refused: overlay hook %s", why.c_str());
+    }
     if (g_config.scenario == "boot" && g_frames == (uint32_t)g_config.frames) finish(true, "");
     else if (g_config.scenario == "cell") tick_cell_scenario();
     else if (g_config.scenario == "collide") tick_collide_scenario();
