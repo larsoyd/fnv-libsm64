@@ -285,6 +285,7 @@ bool hook_activate_sound(std::string &why) { return claim_call(g_sound_call, why
 
 int take_hushed() { return std::exchange(g_hushed, 0); }
 
+
 using ControlsOff = bool(__thiscall *)(void *, uint8_t);
 // where an actor picking its blow asks whether the player's movement is off
 const uintptr_t kCombatControlsCall = 0x008A04B2;
@@ -297,6 +298,51 @@ bool __thiscall controls_off_for_combat(void *p, uint8_t mask) {
 }
 
 bool hook_combat_check(std::string &why) { return claim_call(g_combat_call, why); }
+
+using SayCombat = uint32_t(__thiscall *)(void *, void *, uint32_t, int, int, char, void *);
+// the game's combat dialogue, which also speaks the courier's cries when hurt or dying
+const uintptr_t kSayCombat = 0x009839B0;
+// its frame setup, which moves to a trampoline as is
+const uint8_t kSayCombatStart[10] = {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x8B, 0x94, 0xF1, 0x00};
+SayCombat g_say_combat;
+int g_quiet_voices;
+
+// mario cries out for the courier, the courier's own voice would sound over him
+uint32_t __thiscall say_combat(void *dialogue, void *actor, uint32_t topic, int type, int kind, char now, void *target) {
+    if (g_taken && actor == fnv::player()) return g_quiet_voices++, 0;
+    return g_say_combat(dialogue, actor, topic, type, kind, now, target);
+}
+
+bool hook_courier_voice(std::string &why) {
+    auto *site = reinterpret_cast<uint8_t *>(kSayCombat);
+    if (!std::equal(std::begin(kSayCombatStart), std::end(kSayCombatStart), site)) {
+        why = "code at " + hex(kSayCombat) + " is not the game's own";
+        return false;
+    }
+    auto *tramp = static_cast<uint8_t *>(VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+    DWORD old;
+    if (!tramp || !VirtualProtect(site, 10, PAGE_EXECUTE_READWRITE, &old)) {
+        why = "memory error=" + std::to_string(GetLastError());
+        return false;
+    }
+    memcpy(tramp, kSayCombatStart, 10);
+    uint8_t back[5];
+    call_code(reinterpret_cast<uintptr_t>(tramp) + 10, kSayCombat + 10, back);
+    back[0] = 0xE9;
+    memcpy(tramp + 10, back, 5);
+    g_say_combat = reinterpret_cast<SayCombat>(tramp);
+    uint8_t jump[5];
+    call_code(kSayCombat, reinterpret_cast<uintptr_t>(&say_combat), jump);
+    jump[0] = 0xE9;
+    memcpy(site, jump, 5);
+    memset(site + 5, 0x90, 5);
+    VirtualProtect(site, 10, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 10);
+    logf("control hook name=courier_voice site=%08X trampoline=%08X", (unsigned)kSayCombat, (unsigned)reinterpret_cast<uintptr_t>(tramp));
+    return true;
+}
+
+int take_quiet_voices() { return std::exchange(g_quiet_voices, 0); }
 
 void keep_calls_hooked() {
     static bool said;

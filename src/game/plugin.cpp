@@ -1834,6 +1834,7 @@ void control_frame() {
              pad.buttons.a, pad.buttons.b, pad.buttons.z);
     g_ctl.pad = pad;
     if (int n = take_hushed()) logf("control hush tick=%d count=%d", g_ctl.tick, n);
+    if (int n = take_quiet_voices()) logf("control quiet voice tick=%d count=%d", g_ctl.tick, n);
     bool blocked = menu_mode();
     // in a menu the view is the game's to change
     if (int had = held() && !blocked ? hold_player() : -1; had >= 0) logf("control regrip tick=%d had=%02X", g_ctl.tick, had);
@@ -1978,6 +1979,7 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvs
     // without it mario still plays, the game just clicks at the activate key
     if (!hook_activate_sound(why)) logf("refused: activate sound hook %s", why.c_str());
     if (!hook_combat_check(why)) logf("refused: combat hook %s", why.c_str());
+    if (!hook_courier_voice(why)) logf("refused: courier voice hook %s", why.c_str());
     g_console = static_cast<const nvse::ConsoleInterface *>(nvse->queryInterface(nvse::kInterfaceConsole));
     auto *msg = static_cast<const nvse::MessagingInterface *>(nvse->queryInterface(nvse::kInterfaceMessaging));
     if (!msg || !msg->registerListener(g_handle, "NVSE", on_message)) {

@@ -31,6 +31,10 @@ int take_hushed();
 // actors spare a player whose movement is off, as in a scene, but not mario's
 // false when the code it goes over is no call
 bool hook_combat_check(std::string &why);
+// the courier's own voice stays quiet while mario has him, false if that code changed
+bool hook_courier_voice(std::string &why);
+// how many of the courier's lines were kept quiet since the last call
+int take_quiet_voices();
 // a plugin that puts its own call over one of ours later gets ours put back over it
 void keep_calls_hooked();
 // turns off the game's own movement and goes third person with the body hidden
