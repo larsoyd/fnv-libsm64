@@ -477,6 +477,61 @@ const ScriptLine kBigStunScript[] = {
     {96, "ReleaseKey 42"}, {120, "actors 600"},
 };
 const ControlScript kBigStun{kBigStunScript, {}, {}, 130};
+// a courier past the pre-order and dlc messages, saved for scenarios to start from
+const ScriptLine kBaseScript[] = {
+    {40, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {44, PAD_IDLE}, {70, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {74, PAD_IDLE}, {100, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {104, PAD_IDLE},
+    {130, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {134, PAD_IDLE}, {160, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {164, PAD_IDLE}, {190, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {194, PAD_IDLE},
+    {220, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {224, PAD_IDLE}, {250, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {254, PAD_IDLE}, {280, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {284, PAD_IDLE},
+    {310, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {314, PAD_IDLE}, {340, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {344, PAD_IDLE}, {370, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {374, PAD_IDLE},
+    {400, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {404, PAD_IDLE}, {430, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {434, PAD_IDLE}, {460, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {464, PAD_IDLE},
+    {490, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {494, PAD_IDLE}, {520, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {524, PAD_IDLE}, {550, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {554, PAD_IDLE},
+    {580, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {584, PAD_IDLE}, {610, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {614, PAD_IDLE}, {640, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {644, PAD_IDLE},
+    {670, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {674, PAD_IDLE}, {700, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {704, PAD_IDLE}, {730, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {734, PAD_IDLE},
+    {760, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {764, PAD_IDLE}, {790, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {794, PAD_IDLE}, {820, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {824, PAD_IDLE},
+    {850, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {854, PAD_IDLE}, {880, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {884, PAD_IDLE}, {910, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {914, PAD_IDLE},
+    {940, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {944, PAD_IDLE}, {970, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {974, PAD_IDLE}, {1000, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {1004, PAD_IDLE},
+    {1040, "SaveGame sm64nvbase"},
+};
+const int kBaseShots[] = {38, 300, 1030, 1075};
+const ControlScript kBase{kBaseScript, {}, kBaseShots, 1080};
+// the same for the courier of the quicksave the other scenarios load
+const ScriptLine kBaseQuickScript[] = {
+    {40, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {44, PAD_IDLE}, {70, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {74, PAD_IDLE}, {100, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {104, PAD_IDLE},
+    {130, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {134, PAD_IDLE}, {160, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {164, PAD_IDLE}, {190, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {194, PAD_IDLE},
+    {220, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {224, PAD_IDLE}, {250, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {254, PAD_IDLE}, {280, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {284, PAD_IDLE},
+    {310, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {314, PAD_IDLE}, {340, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {344, PAD_IDLE}, {370, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {374, PAD_IDLE},
+    {400, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {404, PAD_IDLE}, {430, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {434, PAD_IDLE}, {460, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {464, PAD_IDLE},
+    {490, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {494, PAD_IDLE}, {520, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {524, PAD_IDLE}, {550, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {554, PAD_IDLE},
+    {580, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {584, PAD_IDLE}, {610, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {614, PAD_IDLE}, {640, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {644, PAD_IDLE},
+    {670, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {674, PAD_IDLE}, {700, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {704, PAD_IDLE}, {730, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {734, PAD_IDLE},
+    {760, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {764, PAD_IDLE}, {790, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {794, PAD_IDLE}, {820, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {824, PAD_IDLE},
+    {850, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {854, PAD_IDLE}, {880, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {884, PAD_IDLE}, {910, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {914, PAD_IDLE},
+    {940, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {944, PAD_IDLE}, {970, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {974, PAD_IDLE}, {1000, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {1004, PAD_IDLE},
+    {1040, "SaveGame quicksave"},
+};
+const ControlScript kBaseQuick{kBaseQuickScript, {}, kBaseShots, 1080};
 // doc mitchell squashed and blown apart, then the save from before brings him back whole
 const ScriptLine kReloadScript[] = {
     {40, "SaveGame sm64nvsquash"}, {60, "of 00104C0F SetRestrained 1"}, {62, "body 00104C0F"}, {64, "over 200 90 00104C0F"},
@@ -794,10 +849,17 @@ int count_refs(const fnv::TESObjectCELL *c) {
     return n;
 }
 
+// a save to start from and a cell to go to: the cell once the save has loaded
+bool g_cell_after_load, g_game_loaded;
+
 fnv::TESObjectCELL *settle_cell() {
-    if (g_frames == kMenuFrames && !g_config.load.empty()) run_console("LoadGame " + g_config.load);
+    if (g_frames == kMenuFrames && !g_config.load.empty()) run_console("LoadGame " + g_config.load), g_cell_after_load = !g_config.cell.empty();
     else if (g_frames == kMenuFrames && !g_config.cell.empty()) run_console("coc " + g_config.cell);
     if (g_frames <= kMenuFrames) return nullptr;
+    if (g_cell_after_load) {
+        if (g_game_loaded) run_console("coc " + g_config.cell), g_cell_after_load = false, g_settled = 0;
+        return nullptr;
+    }
     fnv::TESObjectCELL *c = loaded_cell();
     g_settled = c ? g_settled + 1 : 0;
     return g_settled >= kSettleFrames ? c : nullptr;
@@ -1873,8 +1935,11 @@ void tick_control_scenario(const ControlScript &script) {
     g_ctl.script = &script;
     if (g_ctl.started) return control_frame();
     fnv::TESObjectCELL *c = settle_cell();
-    g_ctl.started = own_take() ? c != nullptr : loaded_cell() != nullptr;
-    if (g_ctl.started && own_take()) take_control();
+    // a cell gone to after a save loads must settle too, the save's own cell is there first
+    // it has settled once already, so mario takes then rather than waiting for an arrival
+    bool settles = own_take() || (!g_config.load.empty() && !g_config.cell.empty());
+    g_ctl.started = !g_cell_after_load && (settles ? c != nullptr : loaded_cell() != nullptr);
+    if (g_ctl.started && settles) take_control();
 }
 
 void on_frame() {
@@ -1927,6 +1992,8 @@ void on_frame() {
     else if (g_config.scenario == "spare") tick_control_scenario(kSpare);
     else if (g_config.scenario == "reload") tick_control_scenario(kReload);
     else if (g_config.scenario == "scratch") tick_control_scenario(kScratch);
+    else if (g_config.scenario == "base") tick_control_scenario(kBase);
+    else if (g_config.scenario == "basequick") tick_control_scenario(kBaseQuick);
     else if (g_config.scenario == "stunonce") tick_control_scenario(kStunOnce);
     else if (g_config.scenario == "bigstun") tick_control_scenario(kBigStun);
     else if (g_config.scenario == "options") tick_control_scenario(kOptions);
@@ -1943,6 +2010,7 @@ void on_frame() {
 
 void on_load_game(bool ok) {
     logf("control load tick=%d ok=%d", g_ctl.tick, ok);
+    g_game_loaded = g_game_loaded || ok;
     g_arrival.again();
 }
 

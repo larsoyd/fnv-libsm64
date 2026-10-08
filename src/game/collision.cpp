@@ -288,6 +288,8 @@ uint64_t node_pose(const void *node) { return fold_pose(node, 0); }
 
 // the cell itself indoors, outdoors every cell of the grid that has its references attached
 template <typename F> void each_cell(fnv::TESObjectCELL *cell, F visit) {
+    // before mario first has the player there is no cell of his yet
+    if (!cell) return;
     if (cell->interior()) return visit(cell);
     const void *grid = at<const void *>(*reinterpret_cast<void **>(fnv::kTES), 0x08);
     if (!rtti_is(grid, ".?AVGridCellArray@@")) return;
