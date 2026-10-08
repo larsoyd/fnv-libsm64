@@ -356,6 +356,13 @@ const ScriptLine kDeathScript[] = {
     {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
 };
 const ControlScript kDeath{kDeathScript, {}, {}, 130};
+// two punches on a friendly ncr trooper and no kick to floor him, he shoots back on his own
+const ScriptLine kAggroScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "place 000E529C"}, {55, "of 000E529C SetRestrained 1"}, {60, "beside -70 0 90 000E529C"},
+    {64, "of 000E529C SetRestrained 0"}, {66, "health"}, {70, "HoldKey 42"}, {72, "ReleaseKey 42"}, {76, "HoldKey 42"},
+    {78, "ReleaseKey 42"}, {150, "health"}, {380, "health"},
+};
+const ControlScript kAggro{kAggroScript, {}, {}, 390};
 // pounds on a friend, on him frenzied, on an essential foe, then with bloody mess owned
 const ScriptLine kPoundScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
@@ -536,9 +543,12 @@ PuffCounts g_puffs;
 
 struct Smooth {
     int frames = 0, hitches = 0;
-    // the longest the frame hook took while he was meant to be moving
+    // the longest the frame hook took while he was meant to be moving, and every frame's time
     float max_step = 0, max_ms = 0;
+    FrameTimes ms;
 };
+// a frame hook slower than this costs the game a frame at 60
+const float kSlowFrameMs = 12;
 
 struct Control {
     Pad pad{};
@@ -1424,7 +1434,8 @@ void control_tick() {
         if (t != mv.to) continue;
         logf("control move name=%s cam=%.3f from=%s to=%s", mv.name, cam, xyz(g_ctl.move_from).c_str(), xyz(m).c_str());
         const Smooth &sm = g_ctl.smooth;
-        logf("control smooth name=%s frames=%d hitches=%d max_step=%.2f max_ms=%.1f", mv.name, sm.frames, sm.hitches, sm.max_step, sm.max_ms);
+        logf("control smooth name=%s frames=%d hitches=%d max_step=%.2f max_ms=%.1f p95_ms=%.1f slow=%d", mv.name, sm.frames, sm.hitches,
+             sm.max_step, sm.max_ms, sm.ms.quantile(0.95f), sm.ms.over(kSlowFrameMs));
     }
     if (t == s.jump_from) g_ctl.jump_floor = g_ctl.jump_peak = m.z;
     if (t > s.jump_from && t <= s.jump_to) g_ctl.jump_peak = std::fmax(g_ctl.jump_peak, m.z);
@@ -1498,7 +1509,8 @@ void track_smooth(float step) {
     if (expected < 0.05f) return;
     sm.frames++, sm.hitches += step < 0.01f;
     sm.max_step = std::fmax(sm.max_step, step);
-    sm.max_ms = std::fmax(sm.max_ms, float((seconds_now() - g_ctl.frame_t0) * 1000));
+    float ms = float((seconds_now() - g_ctl.frame_t0) * 1000);
+    sm.max_ms = std::fmax(sm.max_ms, ms), sm.ms.add(ms);
 }
 
 // how far the player is from where mario put him last
@@ -1647,6 +1659,7 @@ void on_frame() {
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
+    else if (g_config.scenario == "aggro") tick_control_scenario(kAggro);
     else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);
