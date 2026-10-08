@@ -384,14 +384,22 @@ const ScriptLine kTrooperScript[] = {
     {310, "health"},
 };
 const ControlScript kTrooper{kTrooperScript, {}, {}, 320};
-// a creature of the game's where it lives, mario stands 250 off and does nothing
+// a creature of the game's where it lives, mario stands 150 off where it came from, idle
 const ScriptLine kWildScript[] = {
-    {20, "player.moveto %08X"}, {80, "face %08X 250"}, {86, "spot near"}, {88, "health"}, {82, "actors 1500"},
-    {90, "aware 1500"}, {120, "aware 1500"}, {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"},
-    {240, "aware 1500"}, {270, "aware 1500"}, {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"},
-    {390, "aware 1500"}, {150, "actors 1500"}, {160, "spot after"}, {250, "health"}, {410, "health"},
+    {20, "player.moveto %08X"}, {80, "face %08X 150"}, {82, "actors 1500"}, {88, "health"}, {90, "aware 1500"},
+    {120, "aware 1500"}, {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"}, {240, "aware 1500"},
+    {270, "aware 1500"}, {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"}, {390, "aware 1500"},
+    {150, "actors 1500"}, {300, "actors 1500"}, {395, "health"},
 };
-const ControlScript kWild{kWildScript, {}, {}, 420};
+const ControlScript kWild{kWildScript, {}, {}, 400};
+// the same before its face, for one that only notices what it looks at
+const ScriptLine kWildFrontScript[] = {
+    {20, "player.moveto %08X"}, {80, "front %08X 150"}, {82, "actors 1500"}, {88, "health"}, {90, "aware 1500"},
+    {120, "aware 1500"}, {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"}, {240, "aware 1500"},
+    {270, "aware 1500"}, {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"}, {390, "aware 1500"},
+    {150, "actors 1500"}, {300, "actors 1500"}, {395, "health"},
+};
+const ControlScript kWildFront{kWildFrontScript, {}, {}, 400};
 // the same creature dropped on while it bites the courier, again in case it moved off
 const ScriptLine kWildStompScript[] = {
     {20, "player.moveto %08X"}, {80, "face %08X 250"}, {82, "actors 1500"}, {140, "actors 1500"}, {162, "over 190 90 %08X"},
@@ -406,7 +414,7 @@ struct Wild {
 // one of each kind that goes for the courier, none of them left to spawn chance
 const Wild kWildlife[] = {
     {"gecko", 0x0016518D}, {"usergecko", 0x0016518D}, {"wild_firegecko", 0x00168CC8}, {"wild_fireant", 0x0015E959},
-    {"wild_ant", 0x00168AF1}, {"wild_bloatfly", 0x0015C6F8}, {"wild_coyote", 0x001728AA}, {"wild_nightstalker", 0x00164A73},
+    {"wild_bloatfly", 0x0015C6F8, kWildFront}, {"wild_coyote", 0x001728AA}, {"wild_nightstalker", 0x00164A73},
     {"wild_cazador", 0x00168CC2}, {"wild_deathclaw", 0x000E62E5}, {"wild_radscorpion", 0x00174BDD}, {"wild_ghoul", 0x00168B36},
     {"coyotestomp", 0x001728AA, kWildStomp},
 };
@@ -449,15 +457,13 @@ const ScriptLine kOptionsScript[] = {
 };
 const int kOptionsShots[] = {55, 70, 95};
 const ControlScript kOptions{kOptionsScript, {}, kOptionsShots, 110};
-// mario dropped on a friendly settler's head and then on a coyote's
+// mario dropped on a friendly settler's head
 const ScriptLine kStompScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
     {60, "actors 600"}, {65, "over 200 90 00104F02"}, {80, "flat_beside -140 0 90"}, {150, "actors 600"},
-    {155, "place 00168D08"}, {170, "of 00168D08 SetRestrained 1"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
-    {230, "actors 600"},
 };
 const int kStompShots[] = {64, 86};
-const ControlScript kStomp{kStompScript, {}, kStompShots, 240};
+const ControlScript kStomp{kStompScript, {}, kStompShots, 160};
 // with friends spared, a stomp on the settler's head
 const ScriptLine kSpareScript[] = {
     {40, "player.SetAngle Z 90"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"}, {60, "body 00104F02"},
@@ -1241,6 +1247,19 @@ void teleport_facing(const char *args) {
     teleport_mario(to);
 }
 
+// mario this far ahead of an actor's face, looking at it, on ground it stands on
+void teleport_front(const char *args) {
+    unsigned id;
+    float apart;
+    fnv::TESObjectREFR *of = sscanf(args, "%x %f", &id, &apart) == 2 ? placed(id) : nullptr;
+    if (!of) return finish(false, "front");
+    float h = of->rot[2];
+    char to[96];
+    snprintf(to, sizeof to, "%.1f %.1f %.1f %.1f", of->pos[0] + std::sin(h) * apart, of->pos[1] + std::cos(h) * apart, of->pos[2] + 1,
+             h * 180 / 3.14159265f + 180);
+    teleport_mario(to);
+}
+
 // wall clock so a recording of the stream can be lined up with the windows
 uint64_t unix_ms() {
     FILETIME ft;
@@ -1643,6 +1662,7 @@ void control_tick() {
         else if (!strncmp(text, "beside ", 7)) teleport_beside(text + 7);
         else if (!strncmp(text, "over ", 5)) teleport_over(text + 5);
         else if (!strncmp(text, "face ", 5)) teleport_facing(text + 5);
+        else if (!strncmp(text, "front ", 6)) teleport_front(text + 6);
         else if (!strncmp(text, "flat_beside ", 12)) teleport_beside_squashed(text + 12);
         else if (!strcmp(text, "sound pause")) sound_pause();
         else if (!strcmp(text, "sound status")) log_sound_status();
