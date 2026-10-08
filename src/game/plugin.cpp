@@ -32,6 +32,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -352,13 +353,28 @@ const ScriptLine kDeathScript[] = {
     {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
 };
 const ControlScript kDeath{kDeathScript, {}, {}, 130};
+// pounds on a friend, on him frenzied, on an essential foe, then with bloody mess owned
+const ScriptLine kPoundScript[] = {
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
+    {58, "body 00104F02"}, {60, "over 200 90 00104F02"}, {63, "HoldKey 29"}, {66, "ReleaseKey 29"}, {100, "body 00104F02"},
+    {105, "of 00104F02 SetAV Aggression 3"}, {110, "beside -200 60 90 00104F02"}, {120, "over 200 90 00104F02"}, {123, "HoldKey 29"},
+    {126, "ReleaseKey 29"}, {150, "beside -200 60 90 00104F02"}, {160, "body 00104F02"},
+    {170, "place 00104F02"}, {185, "of 00104F02 SetRestrained 1"}, {186, "of 00104F02 SetAV Aggression 3"},
+    {187, "of 00104F02 SetActorRefEssential 1"}, {190, "over 200 90 00104F02"}, {193, "HoldKey 29"}, {196, "ReleaseKey 29"},
+    {220, "body 00104F02"},
+    {230, "player.ModAV BloodyMess 1"}, {232, "place 00104F02"}, {245, "of 00104F02 SetRestrained 1"},
+    {246, "of 00104F02 SetAV Aggression 3"}, {250, "over 200 90 00104F02"}, {253, "HoldKey 29"}, {256, "ReleaseKey 29"},
+    {280, "body 00104F02"},
+};
+const int kPoundShots[] = {116, 154};
+const ControlScript kPound{kPoundScript, {}, kPoundShots, 290};
 // two punches and the closing kick on a healthy settler, then on one at death's door
 const ScriptLine kFinisherScript[] = {
-    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "of 00104F02 SetRestrained 1"},
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
     {60, "beside -70 0 90 00104F02"}, {64, "of 00104F02 SetRestrained 0"}, {66, "body 00104F02"},
     {70, "HoldKey 42"}, {72, "ReleaseKey 42"}, {76, "HoldKey 42"}, {78, "ReleaseKey 42"}, {82, "HoldKey 42"}, {84, "ReleaseKey 42"},
     {90, "body 00104F02"}, {95, "body 00104F02"}, {100, "body 00104F02"}, {105, "body 00104F02"}, {130, "body 00104F02"},
-    {140, "player.PlaceAtMe 00104F02 1"}, {150, "of 00104F02 SetRestrained 1"}, {155, "beside -70 0 90 00104F02"}, {158, "of 00104F02 SetRestrained 0"},
+    {140, "place 00104F02"}, {150, "of 00104F02 SetRestrained 1"}, {155, "beside -70 0 90 00104F02"}, {158, "of 00104F02 SetRestrained 0"},
     {160, "body 00104F02"},
     {165, "HoldKey 42"}, {167, "ReleaseKey 42"}, {171, "HoldKey 42"}, {173, "ReleaseKey 42"}, {177, "HoldKey 42"}, {179, "ReleaseKey 42"},
     {177, "of 00104F02 ForceAV Health 1"}, {185, "body 00104F02"}, {190, "body 00104F02"}, {195, "body 00104F02"}, {205, "body 00104F02"},
@@ -367,10 +383,10 @@ const int kFinisherShots[] = {98};
 const ControlScript kFinisher{kFinisherScript, {}, kFinisherShots, 240};
 // mario dropped on a settler's head and then on a coyote's
 const ScriptLine kStompScript[] = {
-    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "player.PlaceAtMe 00104F02 1"}, {55, "of 00104F02 SetRestrained 1"},
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
     {60, "actors 600"}, {65, "over 200 90 00104F02"}, {90, "of 00104F02 SetAV Aggression 3"},
     {116, "flat_beside -140 0 90"}, {150, "actors 600"},
-    {155, "player.PlaceAtMe 00168D08 1"}, {170, "of 00168D08 SetRestrained 1"}, {172, "of 00168D08 SetAV Aggression 3"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
+    {155, "place 00168D08"}, {170, "of 00168D08 SetRestrained 1"}, {172, "of 00168D08 SetAV Aggression 3"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
     {230, "actors 600"},
 };
 const int kStompShots[] = {64, 122};
@@ -488,6 +504,21 @@ struct Squashed {
 std::vector<Squashed> g_squashed;
 // how high mario got since he last stood on something
 float g_fall_peak;
+// what a scenario placed of each base form, known once the new one has a body
+struct Placing {
+    std::vector<uint32_t> before;
+    uint32_t ref = 0;
+};
+std::map<uint32_t, Placing> g_placed;
+
+fnv::TESObjectREFR *placed(uint32_t base) {
+    auto it = g_placed.find(base);
+    if (it == g_placed.end()) return nullptr;
+    Placing &p = it->second;
+    for (fnv::TESObjectREFR *a : p.ref ? std::vector<fnv::TESObjectREFR *>{} : actors_of_base(g_sim.cell, base))
+        if (std::ranges::find(p.before, a->form.refID) == p.before.end()) p.ref = a->form.refID, logf("placed base=%08X ref=%08X", base, p.ref);
+    return p.ref ? find_actor(g_sim.cell, p.ref) : nullptr;
+}
 LastFit g_fit;
 Trail g_trail;
 FixedStep g_step;
@@ -901,7 +932,7 @@ void drop_mario() {
     g_sim.id = -1;
     g_boxes.clear(), g_near.clear(), g_thrown.clear(), g_particles.clear(), g_puffs = {};
     g_health = {}, g_meter = 0;
-    g_squashed.clear(), g_fall_peak = 0, g_late.clear();
+    g_squashed.clear(), g_fall_peak = 0, g_late.clear(), g_placed.clear();
 }
 
 bool spawn_drawn_mario(fnv::TESObjectCELL *c, float ahead, std::string &why, bool dump = false) {
@@ -1041,14 +1072,14 @@ void teleport_mario(const char *args) {
     logf("control teleport tick=%d to=%s heading=%.1f", g_ctl.tick, xyz(g).c_str(), deg);
 }
 
-// drops mario from so high over the nearest actor of a base form, facing a heading
+// drops mario from so high over the actor a base form was last placed as, facing a heading
 void teleport_over(const char *args) {
     float dz, deg;
     unsigned base;
     if (sscanf(args, "%f %f %x", &dz, &deg, &base) != 3) return finish(false, "over");
-    auto it = std::ranges::find_if(g_near, [&](const LiveActor &a) { return a.ref->baseForm->refID == base; });
-    if (it == g_near.end()) return finish(false, "over_none");
-    Vec3 a = it->body.feet;
+    fnv::TESObjectREFR *of = placed(base);
+    if (!of) return finish(false, "over_none");
+    Vec3 a{of->pos[0], of->pos[1], of->pos[2]};
     char to[96];
     snprintf(to, sizeof to, "%.1f %.1f %.1f %.1f", a.x, a.y, a.z + dz, deg);
     teleport_mario(to);
@@ -1068,12 +1099,12 @@ void teleport_beside_squashed(const char *args) {
     teleport_mario(to);
 }
 
-// stands mario beside the nearest actor or the newest of a base form, facing a heading
+// stands mario beside the nearest actor or the one last placed of a base form
 void teleport_beside(const char *args) {
     float dx, dy, deg;
     unsigned base = 0;
     int n = sscanf(args, "%f %f %f %x", &dx, &dy, &deg, &base);
-    fnv::TESObjectREFR *of = n == 4 ? newest_of_base(g_sim.cell, base) : g_near.empty() ? nullptr : g_near[0].ref;
+    fnv::TESObjectREFR *of = n == 4 ? placed(base) : g_near.empty() ? nullptr : g_near[0].ref;
     if (n < 3 || !of) return finish(false, "beside");
     char to[96];
     snprintf(to, sizeof to, "%.1f %.1f %.1f %.1f", of->pos[0] + dx, of->pos[1] + dy, of->pos[2] + 1, deg);
@@ -1180,6 +1211,7 @@ void watch_health(int t) {
 }
 
 const int32_t kSoundStomped = 0x50308081, kSoundSquashed = 0x5060B081;
+const uint32_t kBloodyMess = 0x37;
 const uint32_t kActFlagAir = 0x800;
 // ticks a squashed person lies flat before he dies
 const int kSquashTicks = 30;
@@ -1201,6 +1233,18 @@ void look_at_bounce(int t) {
     g_bounce = {};
 }
 
+// only an attacker with bloody mess blows a body apart, so the player gets it briefly
+void blow_apart(int t, const LiveActor &a) {
+    fnv::TESObjectREFR *p = fnv::player();
+    float mess = current_value(p, kBloodyMess), before = actor_health(a.ref);
+    if (mess < 1) run_console("player.ModAV BloodyMess 1");
+    float during = current_value(p, kBloodyMess), dealt = strike_explode(a.ref);
+    if (mess < 1) run_console("player.ModAV BloodyMess -1");
+    logf("gib tick=%d ref=%08X damage=%.1f health=%.1f>%.1f mess=%.0f>%.0f>%.0f gone=%04X", t, a.body.id, dealt, before, actor_health(a.ref),
+         mess, during, current_value(p, kBloodyMess), limbs_gone(a.ref));
+    sm64_play_sound_global(kSoundSquashed);
+}
+
 // mario bounces off a head he falls on, a person is squashed and a creature takes a blow
 void land_stomps(int t, Stomp move, Vec3 was) {
     Vec3 now = mario_pos();
@@ -1209,17 +1253,22 @@ void land_stomps(int t, Stomp move, Vec3 was) {
     if (move == Stomp::none) return;
     auto hit = std::ranges::find_if(g_near, [&](const LiveActor &a) { return stomps(peak, was, now, a.body, g_sim.frame.scale); });
     if (hit == g_near.end()) return;
-    stomp_bounce(g_sim.id, g_sim.state);
-    sm64_play_sound_global(kSoundStomped);
     fnv::TESObjectREFR *a = hit->ref;
     int disposition;
     bool hostile = hostile_to_player(a, disposition);
     float head = head_height(a);
-    StompOutcome out = stomp_outcome({hostile, is_person(a), skeleton_of(a).root && head > 0, hit->body.height});
-    static const char *kOutcomes[] = {"bounce", "hit", "squash"};
-    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s hostile=%d disposition=%d", t, hit->body.id, kOutcomes[(int)out],
-         peak - hit->body.feet.z, xyz(now).c_str(), hostile, disposition);
+    // the landing is all this blow does to its target, the pound's shock skips him
+    g_swing.lands(hit->body.id);
+    bool essential = actor_essential(a);
+    StompOutcome out = stomp_outcome({hostile, is_person(a), skeleton_of(a).root && head > 0, hit->body.height, essential}, move);
+    static const char *kOutcomes[] = {"bounce", "hit", "squash", "gib"};
+    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s hostile=%d disposition=%d essential=%d", t, hit->body.id, kOutcomes[(int)out],
+         peak - hit->body.feet.z, xyz(now).c_str(), hostile, disposition, essential);
     g_bounce = {t + kBounceLook, now.z, now.z};
+    // a pound that blows its target apart carries on down, anything else bounces him off
+    if (out == StompOutcome::gib) return blow_apart(t, *hit);
+    stomp_bounce(g_sim.id, g_sim.state);
+    sm64_play_sound_global(kSoundStomped);
     if (out == StompOutcome::hit) {
         float before = actor_health(a), dealt = strike(a, attack_profile(Attack::pound).damage * g_config.punch * unarmed_scale(actor_unarmed(fnv::player())));
         logf("attack hit tick=%d kind=stomp ref=%08X damage=%.1f health=%.1f>%.1f", t, hit->body.id, dealt, before, actor_health(a));
@@ -1263,19 +1312,30 @@ void log_actors(float reach) {
              std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized);
 }
 
-// where the body of the newest actor of a base form is drawn, not where its reference is
+// where the body last placed of a base form is drawn, not where its reference is
 void log_body(const char *args) {
-    fnv::TESObjectREFR *a = newest_of_base(g_sim.cell, strtoul(args, nullptr, 16));
+    fnv::TESObjectREFR *a = placed(strtoul(args, nullptr, 16));
     Vec3 p{};
     if (!a || !pelvis_at(a, p)) return finish(false, "body");
-    logf("actor body tick=%d ref=%08X pelvis=%s health=%.1f knocked=%d standing=%d", g_ctl.tick, a->form.refID, xyz(p).c_str(), actor_health(a),
-         knocked(a), actor_standing(a));
+    logf("actor body tick=%d ref=%08X pelvis=%s health=%.1f knocked=%d standing=%d gone=%04X", g_ctl.tick, a->form.refID, xyz(p).c_str(),
+         actor_health(a), knocked(a), actor_standing(a), limbs_gone(a));
 }
 
-// a console line run on the last made actor of a base form
-void run_on_newest(const char *args) {
+// places an actor of a base form at the player, which one it became shows once it has a body
+void place_actor(const char *args) {
+    uint32_t base = strtoul(args, nullptr, 16);
+    Placing p;
+    for (fnv::TESObjectREFR *a : actors_of_base(g_sim.cell, base)) p.before.push_back(a->form.refID);
+    g_placed[base] = p;
+    char line[64];
+    snprintf(line, sizeof line, "player.PlaceAtMe %08X 1", base);
+    run_console(line);
+}
+
+// a console line run on the actor a base form was last placed as
+void run_on_placed(const char *args) {
     char *line = nullptr;
-    fnv::TESObjectREFR *a = newest_of_base(g_sim.cell, strtoul(args, &line, 16));
+    fnv::TESObjectREFR *a = placed(strtoul(args, &line, 16));
     if (!a || !line || *line != ' ') return finish(false, "no_actor_of_base");
     unsigned ret = g_console->runScriptLine(line + 1, a);
     logf("console actor=%08X line=%s ok=%d", a->form.refID, line + 1, ret != 0);
@@ -1389,7 +1449,8 @@ void control_tick() {
         else if (!strncmp(line.line, "body ", 5)) log_body(line.line + 5);
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
-        else if (!strncmp(line.line, "of ", 3)) run_on_newest(line.line + 3);
+        else if (!strncmp(line.line, "of ", 3)) run_on_placed(line.line + 3);
+        else if (!strncmp(line.line, "place ", 6)) place_actor(line.line + 6);
         else if (!strcmp(line.line, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
@@ -1582,6 +1643,7 @@ void on_frame() {
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
+    else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);

@@ -24,6 +24,8 @@ using TakeHit = void(__thiscall *)(void *, void *, char);
 using ActorValue = float(__thiscall *)(void *, uint32_t);
 using Shove = void(__thiscall *)(void *, void *, float, float, float, float);
 using ShouldAttack = bool(__thiscall *)(void *, void *, char, int *, char);
+using LimbGone = bool(__thiscall *)(void *, int);
+using IsEssential = bool(__thiscall *)(void *);
 
 template <typename F> F engine(uintptr_t addr) { return reinterpret_cast<F>(addr); }
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
@@ -127,6 +129,8 @@ bool pelvis_at(fnv::TESObjectREFR *actor, Vec3 &out) {
     return pelvis != nullptr;
 }
 
+bool actor_essential(fnv::TESObjectREFR *actor) { return engine<IsEssential>(0x0087F3D0)(actor); }
+
 bool hostile_to_player(fnv::TESObjectREFR *actor, int &disposition) {
     disposition = 0;
     return engine<ShouldAttack>(0x008B06D0)(actor, fnv::player(), 0, &disposition, 0);
@@ -147,9 +151,22 @@ float actor_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x0C, 
 
 float actor_max_health(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x04, kHealth); }
 
-float actor_unarmed(fnv::TESObjectREFR *actor) { return actor_value(actor, 0x0C, kUnarmed); }
+float actor_unarmed(fnv::TESObjectREFR *actor) { return current_value(actor, kUnarmed); }
 
-float strike(fnv::TESObjectREFR *target, float damage) {
+float current_value(fnv::TESObjectREFR *actor, uint32_t code) { return actor_value(actor, 0x0C, code); }
+
+uint32_t limbs_gone(fnv::TESObjectREFR *actor) {
+    uint32_t gone = 0;
+    for (int limb = 0; limb < 15; limb++)
+        if (engine<LimbGone>(0x00573090)(actor, limb)) gone |= 1u << limb;
+    return gone;
+}
+
+// the hit record's limb and flags, the torso and a fatal blow that blows the limb apart
+const int kTorso = 0;
+const uint32_t kFatal = 0x10, kExplodeLimb = 0x40;
+
+static float strike_as(fnv::TESObjectREFR *target, float damage, int place, uint32_t flags) {
     void *hit = engine<Alloc>(0x00401000)(kHitSize);
     engine<HitCall>(0x009B4D90)(hit);
     engine<HitCall>(0x0087ADF0)(hit);
@@ -163,10 +180,18 @@ float strike(fnv::TESObjectREFR *target, float damage) {
     engine<HitStep>(0x009B6620)(hit, 0);
     engine<HitCall>(0x009B73D0)(hit);
     float dealt = field<float>(hit, 0x14);
+    if (place >= 0) field<int>(hit, 0x10) = place;
+    field<uint32_t>(hit, 0x58) |= flags;
     engine<TakeHit>(0x0089A760)(target, hit, 0);
     // letting go of the last count frees the record
     engine<HitCall>(0x0087CEA0)(hit);
     return dealt;
+}
+
+float strike(fnv::TESObjectREFR *target, float damage) { return strike_as(target, damage, -1, 0); }
+
+float strike_explode(fnv::TESObjectREFR *target) {
+    return strike_as(target, actor_health(target) + 1000, kTorso, kFatal | kExplodeLimb);
 }
 
 bool shove(fnv::TESObjectREFR *target, Vec3 from, float force) {
@@ -176,14 +201,19 @@ bool shove(fnv::TESObjectREFR *target, Vec3 from, float force) {
     return true;
 }
 
-fnv::TESObjectREFR *newest_of_base(fnv::TESObjectCELL *cell, uint32_t base) {
-    fnv::TESObjectREFR *best = nullptr;
+std::vector<fnv::TESObjectREFR *> actors_of_base(fnv::TESObjectCELL *cell, uint32_t base) {
+    std::vector<fnv::TESObjectREFR *> out;
     for (fnv::TESObjectCELL *one : loaded_cells(cell))
-        for (auto *it = &one->objectList; it; it = it->next) {
-            fnv::TESObjectREFR *ref = it->data;
-            if (is_actor(ref) && ref->baseForm->refID == base && (!best || ref->form.refID > best->form.refID)) best = ref;
-        }
-    return best;
+        for (auto *it = &one->objectList; it; it = it->next)
+            if (is_actor(it->data) && it->data->baseForm->refID == base) out.push_back(it->data);
+    return out;
+}
+
+fnv::TESObjectREFR *find_actor(fnv::TESObjectCELL *cell, uint32_t id) {
+    for (fnv::TESObjectCELL *one : loaded_cells(cell))
+        for (auto *it = &one->objectList; it; it = it->next)
+            if (is_actor(it->data) && it->data->form.refID == id) return it->data;
+    return nullptr;
 }
 
 std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 c, float reach, ActorStats &stats) {
