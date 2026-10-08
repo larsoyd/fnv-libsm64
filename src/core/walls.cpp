@@ -18,18 +18,24 @@ namespace {
 
 std::vector<bool> g_two_sided;
 
-// sm64 walls only hold mario from the front, so one he comes at from behind is turned first
-void face_walls(float x, float y, float z, float radius) {
+// loose faces turn toward mario while the far side of a solid waits for a second pass
+std::vector<SM64SurfaceCollisionData *> face_walls(float x, float y, float z, float radius) {
+    std::vector<SM64SurfaceCollisionData *> backs;
     for (uint32_t i = 0; i < g_two_sided.size(); i++) {
-        if (!g_two_sided[i]) continue;
         SM64SurfaceCollisionData &s = *loaded_surface_iter_get_at_index(0, i);
         if (!s.isValid || std::fabs(s.normal.y) > 0.01f || y < s.lowerY || y > s.upperY) continue;
         float offset = s.normal.x * x + s.normal.y * y + s.normal.z * z + s.originOffset;
         if (offset >= 0 || offset < -radius) continue;
+        if (!g_two_sided[i]) {
+            s.isValid = false;
+            backs.push_back(&s);
+            continue;
+        }
         std::swap(s.vertex2, s.vertex3);
         s.normal = {-s.normal.x, -s.normal.y, -s.normal.z};
         s.originOffset = -s.originOffset;
     }
+    return backs;
 }
 
 }
@@ -50,8 +56,12 @@ void load_window(const SurfaceWindow &w) {
 
 extern "C" int32_t find_wall_collisions(SM64WallCollisionData *d) {
     // the library caps the radius the same way
-    sm64nv::face_walls(d->x, d->y + d->offsetY, d->z, std::min(d->radius, 200.0f));
-    return sm64_front_wall_collisions(d);
+    auto backs = sm64nv::face_walls(d->x, d->y + d->offsetY, d->z, std::min(d->radius, 200.0f));
+    int32_t hits = sm64_front_wall_collisions(d);
+    for (auto *s : backs) s->isValid = true;
+    // keep the escape path when mario starts inside a solid
+    if (!hits && !backs.empty()) hits = sm64_front_wall_collisions(d);
+    return hits;
 }
 
 extern "C" int32_t f32_find_wall_collision(float *x, float *y, float *z, float offset_y, float radius) {

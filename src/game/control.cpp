@@ -186,6 +186,20 @@ void *__cdecl nothing_sound() {
     return nullptr;
 }
 
+void __thiscall set_control_flags(void *p, uint8_t flags);
+CallHook g_control_call{"control_view", 0x0095F577, reinterpret_cast<void *>(&set_control_flags), 0};
+
+void __thiscall set_control_flags(void *p, uint8_t flags) {
+    using SetFlags = void(__thiscall *)(void *, uint8_t);
+    reinterpret_cast<SetFlags>(g_control_call.next)(p, flags);
+    // control changes request first person even when a door script needs to activate again
+    if (g_taken && p == fnv::player() && !reinterpret_cast<MenuMode>(0x00702360)() && !field<uint8_t>(p, 0x64C)) {
+        float zoom = *reinterpret_cast<float *>(kCameraZoom);
+        reinterpret_cast<ToggleFirstPerson>(0x00950110)(p, false);
+        *reinterpret_cast<float *>(kCameraZoom) = zoom;
+    }
+}
+
 bool chase_setting_ok() {
     const char *name = field<const char *>(chase_setting(), 0x08);
     return fnv::vtbl_of(chase_setting()) == kVtblSetting && name && !strcmp(name, "fChaseCameraMax");
@@ -281,6 +295,8 @@ void keep_pad_hooked() {
     if (!hook_pad(why) && !std::exchange(said, true)) logf("refused: pad rehook %s", why.c_str());
 }
 
+bool hook_control_view(std::string &why) { return claim_call(g_control_call, why); }
+
 bool hook_activate_sound(std::string &why) { return claim_call(g_sound_call, why); }
 
 int take_hushed() { return std::exchange(g_hushed, 0); }
@@ -347,7 +363,7 @@ int take_quiet_voices() { return std::exchange(g_quiet_voices, 0); }
 void keep_calls_hooked() {
     static bool said;
     std::string why;
-    for (CallHook *h : {&g_combat_call, &g_sound_call})
+    for (CallHook *h : {&g_combat_call, &g_sound_call, &g_control_call})
         if (!claim_call(*h, why) && !std::exchange(said, true)) logf("refused: %s rehook %s", h->name, why.c_str());
 }
 
@@ -401,6 +417,8 @@ int hold_player() {
 }
 
 void *body_parent() { return body() ? field<void *>(body(), 0x18) : nullptr; }
+
+bool player_position_pending() { return field<void *>(fnv::player(), 0x1EC) != nullptr; }
 
 void move_player(Vec3 pos) {
     void *p = fnv::player();

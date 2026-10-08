@@ -687,6 +687,34 @@ const ScriptLine kGateScript[] = {
 };
 const ControlScript kGate{kGateScript, {}, {}, 320};
 
+const ScriptLine kFortDoorsScript[] = {
+    {45, "cow FreesideNorthWorld 1 0"},
+    {200, "mario 6280 3350 1040 130"}, {201, "player.SetAngle Z 130"}, {230, "doors"},
+    {235, "spot before"}, {240, "HoldKey 17"}, {275, "ReleaseKey 17"}, {280, "spot fort_shut"},
+    {290, "HoldKey 18"}, {293, "ReleaseKey 18"}, {360, "spot after"},
+};
+const ControlScript kFortDoors{kFortDoorsScript, {}, {}, 380};
+const ScriptLine kStripDoorsScript[] = {
+    {45, "cow TheStripWorldNew -1 1"},
+    {200, "mario -240 4450 1040 0"}, {201, "player.SetAngle Z 0"}, {230, "doors"},
+    {235, "HoldKey 17"}, {250, "ReleaseKey 17"}, {260, "spot strip_shut"},
+    {265, "HoldKey 18"}, {268, "ReleaseKey 18"}, {350, "spot after"},
+};
+const ControlScript kStripDoors{kStripDoorsScript, {}, {}, 370};
+const ScriptLine kTopsDoorsScript[] = {
+    {45, "cow TheStripWorldNew -1 0"},
+    {200, "mario -1330 320 1060 270"}, {201, "player.SetAngle Z 270"}, {230, "doors"},
+    {235, "HoldKey 17"}, {245, "ReleaseKey 17"}, {255, "spot tops_shut"},
+    {260, "HoldKey 18"}, {263, "ReleaseKey 18"}, {350, "spot after"},
+};
+const ControlScript kTopsDoors{kTopsDoorsScript, {}, {}, 370};
+const ScriptLine kTopsEdgeScript[] = {
+    {45, "cow TheStripWorldNew -1 0"},
+    {200, "mario -1480 10 1060 270"}, {201, "player.SetAngle Z 270"}, {230, "doors"},
+    {260, "HoldKey 18"}, {263, "ReleaseKey 18"}, {350, "spot after"},
+};
+const ControlScript kTopsEdge{kTopsEdgeScript, {}, {}, 370};
+
 const int kReleaseShots[] = {177};
 const ControlScript kPlay{{}, {}, {}, INT32_MAX};
 const int kStatusTicks = 900;
@@ -1778,10 +1806,30 @@ void open_door(const char *id) {
 }
 
 void use_door() {
-    std::vector<Door> doors = cell_doors(g_ctl.cell);
+    std::vector<Door> doors;
+    for (auto *cell : loaded_cells(g_ctl.cell)) {
+        auto nearby = cell_doors(cell);
+        doors.insert(doors.end(), nearby.begin(), nearby.end());
+    }
     std::vector<Vec3> at;
     Vec3 m = mario_pos();
-    for (const Door &d : doors) at.push_back(nearest_in_box(m, d.pos, d.heading, d.lo, d.hi));
+    for (const Door &d : doors) {
+        Vec3 closest = nearest_in_box(m, d.pos, d.heading, d.lo, d.hi);
+        // some gates have empty form bounds and a hinge far from their collision
+        if (d.lo.x == d.hi.x && d.lo.y == d.hi.y && d.lo.z == d.hi.z) {
+            float distance = std::hypot(closest.x - m.x, closest.y - m.y, closest.z - m.z);
+            for (size_t j : g_window.nearby(to_sm64(g_sim.frame, m), kDoorReach * g_sim.frame.scale)) {
+                if (g_owners[g_window.source(j)] != d.ref->form.refID) continue;
+                const auto &s = g_window.loaded()[j];
+                auto corner = [](const int32_t *v) { return Vec3{float(v[0]), float(v[1]), float(v[2])}; };
+                Vec3 q = to_game(g_sim.frame, nearest_on_triangle(to_sm64(g_sim.frame, m), corner(s.vertices[0]),
+                                                                 corner(s.vertices[1]), corner(s.vertices[2])));
+                float reach = std::hypot(q.x - m.x, q.y - m.y, q.z - m.z);
+                if (reach < distance) closest = q, distance = reach;
+            }
+        }
+        at.push_back(closest);
+    }
     int i = nearest_within(at, m, kDoorReach);
     if (i < 0) return logf("control door tick=%d ref=none doors=%u", g_ctl.tick, (unsigned)doors.size());
     const Door &d = doors[i];
@@ -1949,6 +1997,7 @@ void carry_over(const char *reason) {
 void follow_cell() {
     fnv::TESObjectCELL *c = loaded_cell();
     float gap = player_gap();
+    if (player_position_pending()) return carry_over("door");
     if (place(c) != g_ctl.place) return carry_over("cell");
     if (gap > kMovedGap) return carry_over("moved");
     if (c == g_ctl.cell) return;
@@ -1974,7 +2023,7 @@ void stand_mario() {
 void seat_mario() {
     fnv::TESObjectCELL *c = loaded_cell();
     hide_body();
-    if (!c || g_ctl.blocked) return;
+    if (!c || g_ctl.blocked || player_position_pending()) return;
     int frames = g_ctl.carry++;
     std::string why;
     if (frames % kSeatEvery == 1 && spawn_drawn_mario(c, 0, why)) {
@@ -2116,6 +2165,10 @@ void on_frame() {
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
     else if (g_config.scenario == "prison") tick_control_scenario(kPrison);
+    else if (g_config.scenario == "fortdoors") tick_control_scenario(kFortDoors);
+    else if (g_config.scenario == "stripdoors") tick_control_scenario(kStripDoors);
+    else if (g_config.scenario == "topsedge") tick_control_scenario(kTopsEdge);
+    else if (g_config.scenario == "topsdoors") tick_control_scenario(kTopsDoors);
     else if (g_config.scenario == "gate") tick_control_scenario(kGate);
     else if (g_config.scenario == "particles" || g_config.scenario == "noparticles") tick_control_scenario(kParticles);
     else if (g_config.scenario.empty()) tick_control_scenario(kPlay);
@@ -2158,6 +2211,7 @@ extern "C" __declspec(dllexport) bool NVSEPlugin_Load(const nvse::Interface *nvs
     logf("loaded version=%s nvse=%08X", kVersion, nvse->nvseVersion);
     g_handle = nvse->getPluginHandle();
     std::string why;
+    if (!hook_control_view(why)) return logf("refused: control view hook %s", why.c_str()), false;
     if (!hook_player_save(why)) return logf("refused: save hook %s", why.c_str()), false;
     if (!hook_pad(why)) return logf("refused: pad hook %s", why.c_str()), false;
     // without it mario still plays, the game just clicks at the activate key

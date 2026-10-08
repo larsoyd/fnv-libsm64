@@ -26,6 +26,7 @@ void keep_pad_hooked();
 // stops the game clicking at an activate key it cannot act on while mario plays
 // false when the code it goes over is no call
 bool hook_activate_sound(std::string &why);
+bool hook_control_view(std::string &why);
 // how many of those clicks were kept quiet since the last call
 int take_hushed();
 // actors spare a player whose movement is off, as in a scene, but not mario's
@@ -45,6 +46,8 @@ void release_player(ControlState &saved);
 // a door gives the player his controls and view back, a scene may switch looking off
 // the control flags when something had to be put right, 0x100 on top for a package, else -1
 int hold_player();
+// the game has queued a position that mario must not overwrite
+bool player_position_pending();
 void move_player(Vec3 pos);
 // the node the courier's body hangs under, a room indoors where there are rooms
 void *body_parent();
