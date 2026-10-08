@@ -24,13 +24,15 @@ std::string pad_mode();
 bool hook_pad(std::string &why);
 void keep_pad_hooked();
 // stops the game clicking at an activate key it cannot act on while mario plays
-// false when the call it replaces is not the game's own
+// false when the code it goes over is no call
 bool hook_activate_sound(std::string &why);
 // how many of those clicks were kept quiet since the last call
 int take_hushed();
 // actors spare a player whose movement is off, as in a scene, but not mario's
-// false when the call it replaces is not the game's own
+// false when the code it goes over is no call
 bool hook_combat_check(std::string &why);
+// a plugin that puts its own call over one of ours later gets ours put back over it
+void keep_calls_hooked();
 // turns off the game's own movement and goes third person with the body hidden
 bool take_player(const ControlState &courier, std::string &why);
 // puts back what take_player changed from the state it saw before

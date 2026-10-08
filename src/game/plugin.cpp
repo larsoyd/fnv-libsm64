@@ -373,13 +373,15 @@ const ScriptLine kBowlingScript[] = {
     {170, "body 00104F02"}, {170, "body 00104F07"}, {170, "body 00104F09"},
 };
 const ControlScript kBowling{kBowlingScript, {}, {}, 180};
-// two punches on a friendly ncr trooper and no kick to floor him, he shoots back on his own
-const ScriptLine kAggroScript[] = {
-    {40, "player.SetAngle Z 90"}, {42, "place 000E529C"}, {55, "of 000E529C SetRestrained 1"}, {60, "beside -70 0 90 000E529C"},
-    {64, "of 000E529C SetRestrained 0"}, {66, "health"}, {70, "HoldKey 42"}, {72, "ReleaseKey 42"}, {76, "HoldKey 42"},
-    {78, "ReleaseKey 42"}, {150, "health"}, {380, "health"},
+// the game's own trooper in primm, two punches and nothing forced, then he fights
+const ScriptLine kTrooperScript[] = {
+    {20, "player.moveto 00156FF5"}, {80, "beside -120 0 90 00156FF5"}, {140, "aware 3000"}, {142, "health"}, {148, "face 00156FF5 70"},
+    {150, "HoldKey 42"}, {152, "ReleaseKey 42"}, {154, "face 00156FF5 70"}, {156, "HoldKey 42"}, {158, "ReleaseKey 42"},
+    {170, "aware 3000"},
+    {200, "aware 3000"}, {230, "aware 3000"}, {260, "aware 3000"}, {290, "aware 3000"}, {230, "health"},
+    {310, "health"},
 };
-const ControlScript kAggro{kAggroScript, {}, {}, 390};
+const ControlScript kTrooper{kTrooperScript, {}, {}, 320};
 // pounds on a friend, on him frenzied, on an essential foe, then with bloody mess owned
 const ScriptLine kPoundScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
@@ -543,9 +545,10 @@ struct Placing {
 };
 std::map<uint32_t, Placing> g_placed;
 
+// a form the scenario never placed is taken as the game's own reference
 fnv::TESObjectREFR *placed(uint32_t base) {
     auto it = g_placed.find(base);
-    if (it == g_placed.end()) return nullptr;
+    if (it == g_placed.end()) return find_actor(g_sim.cell, base);
     Placing &p = it->second;
     for (fnv::TESObjectREFR *a : p.ref ? std::vector<fnv::TESObjectREFR *>{} : actors_of_base(g_sim.cell, base))
         if (std::ranges::find(p.before, a->form.refID) == p.before.end()) p.ref = a->form.refID, logf("placed base=%08X ref=%08X", base, p.ref);
@@ -1152,6 +1155,20 @@ void teleport_beside(const char *args) {
     teleport_mario(to);
 }
 
+// mario this far from an actor that walks about, on his side of it and facing it
+void teleport_facing(const char *args) {
+    unsigned id;
+    float apart;
+    fnv::TESObjectREFR *of = sscanf(args, "%x %f", &id, &apart) == 2 ? placed(id) : nullptr;
+    if (!of) return finish(false, "face");
+    Vec3 m = mario_pos();
+    float dx = of->pos[0] - m.x, dy = of->pos[1] - m.y, len = std::fmax(std::hypot(dx, dy), 1.0f);
+    char to[96];
+    snprintf(to, sizeof to, "%.1f %.1f %.1f %.1f", of->pos[0] - dx / len * apart, of->pos[1] - dy / len * apart, of->pos[2] + 1,
+             std::atan2(dx, dy) * 180 / 3.14159265f);
+    teleport_mario(to);
+}
+
 // wall clock so a recording of the stream can be lined up with the windows
 uint64_t unix_ms() {
     FILETIME ft;
@@ -1385,6 +1402,19 @@ void log_actors(float reach) {
              std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized);
 }
 
+void log_awareness(float reach) {
+    ActorStats st;
+    Vec3 m = mario_pos();
+    for (const LiveActor &a : nearby_actors(g_ctl.cell, m, reach, st)) {
+        Awareness w = awareness_of_player(a.ref);
+        int disposition = 0;
+        bool hostile = hostile_to_player(a.ref, disposition);
+        logf("aware tick=%d ref=%08X base=%08X dist=%.0f hostile=%d disposition=%d sees=%d ray=%d detect=%d seen=%d lost=%d target=%08X",
+             g_ctl.tick, a.body.id, a.ref->baseForm->refID, std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y), hostile, disposition,
+             w.sees, w.ray, w.detect, w.seen, w.lost, w.target ? w.target->form.refID : 0);
+    }
+}
+
 // where the body last placed of a base form is drawn, not where its reference is
 void log_body(const char *args) {
     fnv::TESObjectREFR *a = placed(strtoul(args, nullptr, 16));
@@ -1530,6 +1560,7 @@ void control_tick() {
         else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
         else if (!strncmp(line.line, "beside ", 7)) teleport_beside(line.line + 7);
         else if (!strncmp(line.line, "over ", 5)) teleport_over(line.line + 5);
+        else if (!strncmp(line.line, "face ", 5)) teleport_facing(line.line + 5);
         else if (!strncmp(line.line, "flat_beside ", 12)) teleport_beside_squashed(line.line + 12);
         else if (!strcmp(line.line, "sound pause")) sound_pause();
         else if (!strcmp(line.line, "sound status")) log_sound_status();
@@ -1544,6 +1575,7 @@ void control_tick() {
             overlay_capture(g_dir + name);
         }
         else if (!strncmp(line.line, "body ", 5)) log_body(line.line + 5);
+        else if (!strncmp(line.line, "aware ", 6)) log_awareness((float)atof(line.line + 6));
         else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
         else if (!strncmp(line.line, "of ", 3)) run_on_placed(line.line + 3);
@@ -1662,6 +1694,7 @@ void control_frame() {
     // he is placed higher by what he was found low the frame before
     if (g_ctl.placed) g_ctl.settle = std::clamp(g_ctl.settle + g_ctl.last.z - player_pos().z, -kSettleMost, kSettleMost);
     keep_pad_hooked();
+    keep_calls_hooked();
     Pad pad;
     bool toggle, activate;
     if (!read_game_pad(pad, toggle, activate)) return finish(false, "input_globals");
@@ -1750,7 +1783,7 @@ void on_frame() {
     else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
     else if (g_config.scenario == "bowling") tick_control_scenario(kBowling);
-    else if (g_config.scenario == "aggro") tick_control_scenario(kAggro);
+    else if (g_config.scenario == "trooper" || g_config.scenario == "usertrooper") tick_control_scenario(kTrooper);
     else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);

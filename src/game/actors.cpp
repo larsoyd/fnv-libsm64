@@ -26,6 +26,9 @@ using Shove = void(__thiscall *)(void *, void *, float, float, float, float);
 using ShouldAttack = bool(__thiscall *)(void *, void *, char, int *, char);
 using LimbGone = bool(__thiscall *)(void *, int);
 using IsEssential = bool(__thiscall *)(void *);
+using LineOfSight = uint8_t(__thiscall *)(void *, char, void *, char, int *, char);
+using Detection = int(__thiscall *)(void *, char, void *, char *, char, char, int, char *);
+using CombatTarget = fnv::TESObjectREFR *(__thiscall *)(void *);
 
 template <typename F> F engine(uintptr_t addr) { return reinterpret_cast<F>(addr); }
 template <typename T> T &field(void *obj, size_t off) { return *reinterpret_cast<T *>(static_cast<uint8_t *>(obj) + off); }
@@ -134,6 +137,18 @@ bool actor_essential(fnv::TESObjectREFR *actor) { return engine<IsEssential>(0x0
 bool hostile_to_player(fnv::TESObjectREFR *actor, int &disposition) {
     disposition = 0;
     return engine<ShouldAttack>(0x008B06D0)(actor, fnv::player(), 0, &disposition, 0);
+}
+
+Awareness awareness_of_player(fnv::TESObjectREFR *actor) {
+    Awareness a;
+    void *p = fnv::player();
+    a.sees = engine<LineOfSight>(0x0088B880)(actor, 0, p, 1, nullptr, 0);
+    a.ray = engine<LineOfSight>(0x0088B880)(actor, 1, p, 1, nullptr, 1);
+    char lost = 0, seen = 0;
+    a.detect = engine<Detection>(0x008A0D10)(actor, 0, p, &lost, 0, 0, 0, &seen);
+    a.lost = lost, a.seen = seen;
+    a.target = virt<CombatTarget>(actor, 0x42C)(actor);
+    return a;
 }
 
 bool actor_standing(const fnv::TESObjectREFR *actor) {

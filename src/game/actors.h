@@ -51,6 +51,14 @@ bool actor_essential(fnv::TESObjectREFR *actor);
 // whether the game says the actor should fight the player, and its disposition
 bool hostile_to_player(fnv::TESObjectREFR *actor, int &disposition);
 
+// what an actor's ai knows of the player, sight, a fresh ray, detection and target
+struct Awareness {
+    bool sees = false, ray = false, seen = false, lost = false;
+    int detect = 0;
+    fnv::TESObjectREFR *target = nullptr;
+};
+Awareness awareness_of_player(fnv::TESObjectREFR *actor);
+
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
 float actor_max_health(fnv::TESObjectREFR *actor);

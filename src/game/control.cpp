@@ -1,4 +1,5 @@
 #include "game/control.h"
+#include "core/calls.h"
 #include "game/fnv.h"
 #include "game/log.h"
 #include "game/rtti.h"
@@ -32,7 +33,7 @@ const uintptr_t kPlayerSetPos = 0x00931620;
 const uintptr_t kPlayerSaveSlot = 0x0108AA90;
 const uintptr_t kPlayerSave = 0x009590F0;
 // where the activate key fetches its sound for nothing to use, and what it calls there
-const uintptr_t kNothingSoundCall = 0x009433B7, kNothingSound = 0x0082EC10;
+const uintptr_t kNothingSoundCall = 0x009433B7;
 const uint32_t kHasKeyboard = 1 << 2;
 const uint8_t kBlockedControls = 0x01 | 0x08 | 0x10 | 0x40;
 // mario needs the camera whatever the game's scenes want
@@ -133,30 +134,54 @@ DWORD WINAPI read_pad_for_game(DWORD index, void *state) {
     return failed;
 }
 
-// puts a call to ours over code that must read exactly as expected
-bool patch_call(uintptr_t at, std::span<const uint8_t> expect, void *to, std::string &why) {
-    auto *site = reinterpret_cast<uint8_t *>(at);
-    if (!std::equal(expect.begin(), expect.end(), site)) {
-        why = "code at " + hex(at) + " is not the game's own";
+// a call of the game's that ours sits on, what it called before is passed on to
+struct CallHook {
+    const char *name;
+    uintptr_t site;
+    void *ours;
+    uintptr_t next;
+};
+
+std::string module_of(uintptr_t addr) {
+    HMODULE mod = nullptr;
+    char path[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(addr), &mod))
+        GetModuleFileNameA(mod, path, sizeof path);
+    const char *base = strrchr(path, '\\');
+    return base ? base + 1 : path;
+}
+
+// a plugin's call put there before or after us is the one ours passes on to
+bool claim_call(CallHook &h, std::string &why) {
+    auto *site = reinterpret_cast<uint8_t *>(h.site);
+    uint32_t was = call_target(h.site, site);
+    if (was == reinterpret_cast<uintptr_t>(h.ours)) return true;
+    if (!was) {
+        why = "code at " + hex(h.site) + " is no call";
         return false;
     }
     DWORD old;
-    if (!VirtualProtect(site, expect.size(), PAGE_EXECUTE_READWRITE, &old)) {
+    if (!VirtualProtect(site, 5, PAGE_EXECUTE_READWRITE, &old)) {
         why = "protect error=" + std::to_string(GetLastError());
         return false;
     }
-    int32_t rel = (int32_t)(reinterpret_cast<uintptr_t>(to) - (at + 5));
-    site[0] = 0xE8;
-    memcpy(site + 1, &rel, 4);
-    memset(site + 5, 0x90, expect.size() - 5);
-    VirtualProtect(site, expect.size(), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), site, expect.size());
+    h.next = was;
+    uint8_t code[5];
+    call_code(h.site, reinterpret_cast<uintptr_t>(h.ours), code);
+    memcpy(site + 1, code + 1, 4);
+    VirtualProtect(site, 5, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), site, 5);
+    logf("control hook name=%s site=%08X next=%08X module=%s", h.name, (unsigned)h.site, (unsigned)h.next, module_of(h.next).c_str());
     return true;
 }
 
 // with movement off the game clicks at its activate key
+void *__cdecl nothing_sound();
+CallHook g_sound_call{"activate_sound", kNothingSoundCall, reinterpret_cast<void *>(&nothing_sound), 0};
+
 void *__cdecl nothing_sound() {
-    if (!g_taken) return reinterpret_cast<SoundForm>(kNothingSound)();
+    if (!g_taken) return reinterpret_cast<SoundForm>(g_sound_call.next)();
     g_hushed++;
     return nullptr;
 }
@@ -255,29 +280,28 @@ void keep_pad_hooked() {
     if (!hook_pad(why) && !std::exchange(said, true)) logf("refused: pad rehook %s", why.c_str());
 }
 
-bool hook_activate_sound(std::string &why) {
-    // a call to the function that hands out the sound
-    int32_t rel = (int32_t)(kNothingSound - (kNothingSoundCall + 5));
-    uint8_t expect[5] = {0xE8};
-    memcpy(expect + 1, &rel, 4);
-    return patch_call(kNothingSoundCall, expect, reinterpret_cast<void *>(&nothing_sound), why);
-}
+bool hook_activate_sound(std::string &why) { return claim_call(g_sound_call, why); }
 
 int take_hushed() { return std::exchange(g_hushed, 0); }
 
 using ControlsOff = bool(__thiscall *)(void *, uint8_t);
 // where an actor picking its blow asks whether the player's movement is off
-const uintptr_t kCombatControlsCall = 0x008A04B2, kControlsOff = 0x005A03F0;
+const uintptr_t kCombatControlsCall = 0x008A04B2;
+
+bool __thiscall controls_off_for_combat(void *p, uint8_t mask);
+CallHook g_combat_call{"combat", kCombatControlsCall, reinterpret_cast<void *>(&controls_off_for_combat), 0};
 
 bool __thiscall controls_off_for_combat(void *p, uint8_t mask) {
-    return !g_taken && reinterpret_cast<ControlsOff>(kControlsOff)(p, mask);
+    return !g_taken && reinterpret_cast<ControlsOff>(g_combat_call.next)(p, mask);
 }
 
-bool hook_combat_check(std::string &why) {
-    int32_t rel = (int32_t)(kControlsOff - (kCombatControlsCall + 5));
-    uint8_t expect[5] = {0xE8};
-    memcpy(expect + 1, &rel, 4);
-    return patch_call(kCombatControlsCall, expect, reinterpret_cast<void *>(&controls_off_for_combat), why);
+bool hook_combat_check(std::string &why) { return claim_call(g_combat_call, why); }
+
+void keep_calls_hooked() {
+    static bool said;
+    std::string why;
+    for (CallHook *h : {&g_combat_call, &g_sound_call})
+        if (!claim_call(*h, why) && !std::exchange(said, true)) logf("refused: %s rehook %s", h->name, why.c_str());
 }
 
 bool take_player(const ControlState &courier, std::string &why) {
