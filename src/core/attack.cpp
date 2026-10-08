@@ -103,6 +103,14 @@ void stomp_bounce(int32_t id, const SM64MarioState &st) {
     sm64_play_sound_global(kSoundBounce);
 }
 
+// sm64's goomba loses this much height a tick down to its flattest, then spreads out
+static const float kSquashStep = 0.14f, kFlattest = 0.3f, kSpread = 1.7f;
+
+Squash squash_at(int ticks) {
+    float h = std::max(kFlattest, 1 - kSquashStep * std::max(ticks, 0));
+    return {h, h <= kFlattest + 1e-4f ? kSpread : 1};
+}
+
 void Swing::tick(Attack now) {
     if (now != now_) hit_.clear();
     now_ = now;

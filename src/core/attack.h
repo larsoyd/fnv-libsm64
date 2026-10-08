@@ -41,6 +41,12 @@ bool stomps(float peak, Vec3 was, Vec3 now, const ActorBody &target, float scale
 // sends mario back up off a head with sm64's own bounce, he has landed on it already
 void stomp_bounce(int32_t id, const SM64MarioState &st);
 
+// how flat and how wide a stomped person is so many ticks after
+struct Squash {
+    float height, width;
+};
+Squash squash_at(int ticks);
+
 // one blow hits each target once however many ticks it lasts
 class Swing {
 public:

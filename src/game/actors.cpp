@@ -1,8 +1,10 @@
 #include "game/actors.h"
 #include "game/collision.h"
+#include "game/rtti.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace sm64nv {
 
@@ -84,6 +86,37 @@ float apart(const LiveActor &a, Vec3 c) { return std::hypot(a.body.feet.x - c.x,
 int knocked(fnv::TESObjectREFR *actor) {
     void *process = at<void *>(actor, 0x68);
     return fnv::vtbl_of(process) == kVtblHighProcess ? at<uint8_t>(process, 0x13C) : 0;
+}
+
+bool is_person(const fnv::TESObjectREFR *actor) { return fnv::vtbl_of(actor) == kVtblCharacter; }
+
+static void *find_node(void *n, const char *name, int depth = 0) {
+    if (!n || depth > 32) return nullptr;
+    const char *own = field<const char *>(n, 0x08);
+    if (own && !strcmp(own, name)) return n;
+    if (!is_ni_node(n)) return nullptr;
+    for (int i = 0, count = field<uint16_t>(n, 0xA6); i < count; i++)
+        if (void *found = find_node(field<void **>(n, 0xA0)[i], name, depth + 1)) return found;
+    return nullptr;
+}
+
+Skeleton skeleton_of(fnv::TESObjectREFR *actor) {
+    Skeleton s;
+    s.root = find_node(actor->renderState->niNode, "Bip01");
+    if (s.root) memcpy(s.rot, &field<float>(s.root, 0x34), sizeof s.rot);
+    return s;
+}
+
+void squash_skeleton(const Skeleton &s, float height, float width) {
+    if (!s.root) return;
+    // rows of the local rotation scale along the parent's axes, the last row is up
+    float *rot = &field<float>(s.root, 0x34);
+    for (int i = 0; i < 9; i++) rot[i] = s.rot[i] * (i < 6 ? width : height);
+}
+
+float head_height(fnv::TESObjectREFR *actor) {
+    void *head = find_node(actor->renderState->niNode, "Bip01 Head");
+    return head ? field<float>(head, 0x94) - actor->pos[2] : -1;
 }
 
 bool actor_standing(const fnv::TESObjectREFR *actor) {

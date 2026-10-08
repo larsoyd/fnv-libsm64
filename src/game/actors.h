@@ -25,6 +25,20 @@ std::vector<LiveActor> nearby_actors(fnv::TESObjectCELL *cell, Vec3 center, floa
 int knocked(fnv::TESObjectREFR *actor);
 // alive and on its feet, restrained counts, dying and dead do not
 bool actor_standing(const fnv::TESObjectREFR *actor);
+// a character rather than a creature
+bool is_person(const fnv::TESObjectREFR *actor);
+
+// a skeleton's root, which animation leaves alone, so scaling it scales the body
+struct Skeleton {
+    void *root = nullptr;
+    float rot[9];
+};
+Skeleton skeleton_of(fnv::TESObjectREFR *actor);
+// height across the skeleton's own up and width along the ground, 1 puts it back as it was
+void squash_skeleton(const Skeleton &s, float height, float width);
+// how high the head is over the feet as the body is drawn, -1 without a head
+float head_height(fnv::TESObjectREFR *actor);
+
 // health as the game counts it, and the most it can hold
 float actor_health(fnv::TESObjectREFR *actor);
 float actor_max_health(fnv::TESObjectREFR *actor);
