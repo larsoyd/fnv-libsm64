@@ -156,9 +156,9 @@ void mario_mesh_update(const MeshOut &body, const MeshOut &decal, const MeshOut 
     update_shape(g_puffs, puffs, world, kPuffBound);
 }
 
-void mario_mesh_hide() {
+void mario_mesh_hide(bool hidden) {
     if (!g_body.shape) return;
-    for (Shape *s : {&g_body, &g_decal, &g_puffs}) set_hidden(s->shape, true);
+    for (Shape *s : {&g_body, &g_decal, &g_puffs}) set_hidden(s->shape, hidden);
 }
 
 std::string node_chain(void *node) {

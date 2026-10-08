@@ -143,12 +143,16 @@ void pipboy_arms_reset() {
     g_bones.fill(nullptr);
 }
 
-void pipboy_arms_update(bool mario) {
-    if (!mario) return pipboy_arms_reset();
+bool pipboy_active() {
     void *ui = *reinterpret_cast<void **>(0x011D8A80);
     uint32_t mode = ui ? field<uint32_t>(ui, 0x4BC) : 0;
     // states 1..5 cover the request, raise, menu and complete lowering
-    if (mode < 1 || mode > 5) {
+    return mode >= 1 && mode <= 5;
+}
+
+void pipboy_arms_update(bool mario) {
+    if (!mario) return pipboy_arms_reset();
+    if (!pipboy_active()) {
         restore();
         visibility(false);
         return;

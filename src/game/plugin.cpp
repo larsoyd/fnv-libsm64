@@ -331,6 +331,17 @@ const ScriptLine kPipboyArmsScript[] = {
 const int kPipboyArmsShots[] = {65, 95, 105, 112, 135, 295, 445, 520};
 const ControlScript kPipboyArms{kPipboyArmsScript, {}, kPipboyArmsShots, 535};
 
+const ScriptLine kPipboyViewScript[] = {
+    {30, "player.SetAngle X 80"}, {40, "state"},
+    {45, "HoldKey 15"}, {48, "ReleaseKey 15"}, {55, "state"}, {95, "state"},
+    {130, "HoldKey 15"}, {133, "ReleaseKey 15"}, {140, "state"}, {200, "state"},
+    {210, "player.SetAngle X -70"},
+    {230, "HoldKey 15"}, {233, "ReleaseKey 15"}, {240, "state"}, {280, "state"},
+    {310, "HoldKey 15"}, {313, "ReleaseKey 15"}, {320, "state"}, {380, "state"},
+};
+const int kPipboyViewShots[] = {40, 55, 95, 140, 200, 240, 280, 320, 380};
+const ControlScript kPipboyView{kPipboyViewScript, {}, kPipboyViewShots, 395};
+
 const ScriptLine kPipboyTabsScript[] = {
     {40, "HoldKey 15"}, {43, "ReleaseKey 15"}, {95, "state"},
     {100, "HoldKey 60"}, {103, "ReleaseKey 60"}, {135, "state"},
@@ -2020,6 +2031,7 @@ void control_frame() {
     if (!taken() || g_done) return;
     if (hide_body()) logf("control rehide tick=%d", g_ctl.tick);
     Vec3 drawn = draw_mario();
+    mario_mesh_hide(pipboy_active());
     if (in_move(g_ctl.tick)) track_smooth(std::hypot(drawn.x - g_ctl.last.x, drawn.y - g_ctl.last.y, drawn.z - g_ctl.last.z));
     g_ctl.last = drawn;
     move_player({drawn.x, drawn.y, drawn.z + g_ctl.settle});
@@ -2075,6 +2087,7 @@ void on_frame() {
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
+    else if (g_config.scenario == "pipboyview") tick_control_scenario(kPipboyView);
     else if (g_config.scenario == "pipboytabs") tick_control_scenario(kPipboyTabs);
     else if (g_config.scenario == "pipboyarms") tick_control_scenario(kPipboyArms);
     else if (g_config.scenario == "pipboyequip") tick_control_scenario(kPipboyEquip);
