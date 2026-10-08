@@ -408,7 +408,7 @@ const ScriptLine kDeathScript[] = {
     {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"}, {130, "overlay"}, {182, "hudshot"}, {216, "hudshot"},
     {200, "overlay"},
 };
-const ControlScript kDeath{kDeathScript, {}, {}, 320};
+const ControlScript kDeath{kDeathScript, {}, {}, 600};
 // three settlers in a row up the street and a slide kick through them
 const ScriptLine kBowlingScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"},
@@ -509,11 +509,12 @@ const ControlScript kScratch{kScratchScript, {}, {}, 85};
 // the punches and the closing kick twice on one settler, once he is up again
 const ScriptLine kStunOnceScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
-    {60, "beside -70 0 90 00104F02"}, {64, "of 00104F02 SetRestrained 0"}, {70, "HoldKey 42"}, {72, "ReleaseKey 42"},
-    {76, "HoldKey 42"}, {78, "ReleaseKey 42"}, {82, "HoldKey 42"}, {84, "ReleaseKey 42"}, {100, "body 00104F02"},
+    {60, "beside -70 0 90 00104F02"}, {64, "of 00104F02 SetRestrained 0"}, {68, "face 00104F02 70"}, {70, "HoldKey 42"},
+    {72, "ReleaseKey 42"}, {74, "face 00104F02 70"}, {76, "HoldKey 42"}, {78, "ReleaseKey 42"}, {80, "face 00104F02 70"},
+    {82, "HoldKey 42"}, {84, "ReleaseKey 42"}, {100, "body 00104F02"},
     {260, "body 00104F02"}, {262, "of 00104F02 SetRestrained 1"}, {265, "beside -70 0 90 00104F02"}, {268, "of 00104F02 SetRestrained 0"},
-    {270, "HoldKey 42"}, {272, "ReleaseKey 42"}, {276, "HoldKey 42"}, {278, "ReleaseKey 42"}, {282, "HoldKey 42"},
-    {284, "ReleaseKey 42"}, {300, "body 00104F02"},
+    {269, "face 00104F02 70"}, {270, "HoldKey 42"}, {272, "ReleaseKey 42"}, {274, "face 00104F02 70"}, {276, "HoldKey 42"},
+    {278, "ReleaseKey 42"}, {280, "face 00104F02 70"}, {282, "HoldKey 42"}, {284, "ReleaseKey 42"}, {300, "body 00104F02"},
 };
 const ControlScript kStunOnce{kStunOnceScript, {}, {}, 310};
 // the punches and the closing kick on the quarry's deathclaw, facing it before each
@@ -523,30 +524,70 @@ const ScriptLine kBigStunScript[] = {
     {96, "ReleaseKey 42"}, {120, "actors 600"},
 };
 const ControlScript kBigStun{kBigStunScript, {}, {}, 130};
-// a courier past the pre-order and dlc messages, saved for scenarios to start from
+// a courier past the intro's question and the dlc messages, for scenarios to start from
+// down twice and a picks travel onward, on any other box a is its only button
 const ScriptLine kBaseScript[] = {
-    {40, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {44, PAD_IDLE}, {70, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {74, PAD_IDLE}, {100, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {104, PAD_IDLE},
-    {130, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {134, PAD_IDLE}, {160, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {164, PAD_IDLE}, {190, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {194, PAD_IDLE},
-    {220, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {224, PAD_IDLE}, {250, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {254, PAD_IDLE}, {280, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {284, PAD_IDLE},
-    {310, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {314, PAD_IDLE}, {340, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {344, PAD_IDLE}, {370, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {374, PAD_IDLE},
-    {400, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {404, PAD_IDLE}, {430, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {434, PAD_IDLE}, {460, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {464, PAD_IDLE},
-    {490, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {494, PAD_IDLE}, {520, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {524, PAD_IDLE}, {550, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {554, PAD_IDLE},
-    {580, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {584, PAD_IDLE}, {610, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {614, PAD_IDLE}, {640, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {644, PAD_IDLE},
-    {670, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {674, PAD_IDLE}, {700, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {704, PAD_IDLE}, {730, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {734, PAD_IDLE},
-    {760, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {764, PAD_IDLE}, {790, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {794, PAD_IDLE}, {820, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {824, PAD_IDLE},
-    {850, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {854, PAD_IDLE}, {880, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {884, PAD_IDLE}, {910, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {914, PAD_IDLE},
-    {940, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {944, PAD_IDLE}, {970, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
-    {974, PAD_IDLE}, {1000, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"}, {1004, PAD_IDLE},
+    {20, "player.RestoreAV Health 100000"}, {40, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {43, PAD_IDLE},
+    {46, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {49, PAD_IDLE}, {52, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {55, PAD_IDLE}, {70, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {73, PAD_IDLE},
+    {76, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {79, PAD_IDLE}, {82, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {85, PAD_IDLE}, {100, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {103, PAD_IDLE},
+    {106, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {109, PAD_IDLE}, {112, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {115, PAD_IDLE}, {130, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {133, PAD_IDLE},
+    {136, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {139, PAD_IDLE}, {142, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {145, PAD_IDLE}, {160, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {163, PAD_IDLE},
+    {166, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {169, PAD_IDLE}, {172, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {175, PAD_IDLE}, {190, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {193, PAD_IDLE},
+    {196, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {199, PAD_IDLE}, {202, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {205, PAD_IDLE}, {220, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {223, PAD_IDLE},
+    {226, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {229, PAD_IDLE}, {232, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {235, PAD_IDLE}, {250, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {253, PAD_IDLE},
+    {256, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {259, PAD_IDLE}, {262, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {265, PAD_IDLE}, {280, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {283, PAD_IDLE},
+    {286, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {289, PAD_IDLE}, {292, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {295, PAD_IDLE}, {310, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {313, PAD_IDLE},
+    {316, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {319, PAD_IDLE}, {322, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {325, PAD_IDLE}, {340, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {343, PAD_IDLE},
+    {346, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {349, PAD_IDLE}, {352, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {355, PAD_IDLE}, {370, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {373, PAD_IDLE},
+    {376, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {379, PAD_IDLE}, {382, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {385, PAD_IDLE}, {400, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {403, PAD_IDLE},
+    {406, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {409, PAD_IDLE}, {412, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {415, PAD_IDLE}, {430, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {433, PAD_IDLE},
+    {436, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {439, PAD_IDLE}, {442, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {445, PAD_IDLE}, {460, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {463, PAD_IDLE},
+    {466, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {469, PAD_IDLE}, {472, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {475, PAD_IDLE}, {490, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {493, PAD_IDLE},
+    {496, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {499, PAD_IDLE}, {502, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {505, PAD_IDLE}, {520, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {523, PAD_IDLE},
+    {526, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {529, PAD_IDLE}, {532, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {535, PAD_IDLE}, {550, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {553, PAD_IDLE},
+    {556, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {559, PAD_IDLE}, {562, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {565, PAD_IDLE}, {580, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {583, PAD_IDLE},
+    {586, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {589, PAD_IDLE}, {592, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {595, PAD_IDLE}, {610, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {613, PAD_IDLE},
+    {616, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {619, PAD_IDLE}, {622, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {625, PAD_IDLE}, {640, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {643, PAD_IDLE},
+    {646, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {649, PAD_IDLE}, {652, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {655, PAD_IDLE}, {670, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {673, PAD_IDLE},
+    {676, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {679, PAD_IDLE}, {682, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {685, PAD_IDLE}, {700, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {703, PAD_IDLE},
+    {706, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {709, PAD_IDLE}, {712, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {715, PAD_IDLE}, {730, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {733, PAD_IDLE},
+    {736, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {739, PAD_IDLE}, {742, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {745, PAD_IDLE}, {760, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {763, PAD_IDLE},
+    {766, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {769, PAD_IDLE}, {772, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {775, PAD_IDLE}, {790, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {793, PAD_IDLE},
+    {796, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {799, PAD_IDLE}, {802, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {805, PAD_IDLE}, {820, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {823, PAD_IDLE},
+    {826, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {829, PAD_IDLE}, {832, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {835, PAD_IDLE}, {850, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {853, PAD_IDLE},
+    {856, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {859, PAD_IDLE}, {862, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {865, PAD_IDLE}, {880, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {883, PAD_IDLE},
+    {886, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {889, PAD_IDLE}, {892, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {895, PAD_IDLE}, {910, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {913, PAD_IDLE},
+    {916, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=0002"}, {919, PAD_IDLE}, {922, "pad lx=0 ly=0 rx=0 ry=0 lt=0 rt=0 buttons=1000"},
+    {925, PAD_IDLE}, {960, "coc TestTraps"}, {1000, "player.RestoreAV Health 100000"},
     {1040, "SaveGame sm64nvbase"},
 };
 const int kBaseShots[] = {38, 300, 1030, 1075};
@@ -897,15 +938,18 @@ int count_refs(const fnv::TESObjectCELL *c) {
 
 // a save to start from and a cell to go to: the cell once the save has loaded
 bool g_cell_after_load, g_game_loaded;
+// the save's own cell, which does not count as arrived in
+fnv::TESObjectCELL *g_save_cell;
 
 fnv::TESObjectCELL *settle_cell() {
     if (g_frames == kMenuFrames && !g_config.load.empty()) run_console("LoadGame " + g_config.load), g_cell_after_load = !g_config.cell.empty();
     else if (g_frames == kMenuFrames && !g_config.cell.empty()) run_console("coc " + g_config.cell);
     if (g_frames <= kMenuFrames) return nullptr;
     if (g_cell_after_load) {
-        if (g_game_loaded) run_console("coc " + g_config.cell), g_cell_after_load = false, g_settled = 0;
+        if (g_game_loaded) g_save_cell = loaded_cell(), run_console("coc " + g_config.cell), g_cell_after_load = false;
         return nullptr;
     }
+    if (g_save_cell && loaded_cell() == g_save_cell) return g_settled = 0, nullptr;
     fnv::TESObjectCELL *c = loaded_cell();
     g_settled = c ? g_settled + 1 : 0;
     return g_settled >= kSettleFrames ? c : nullptr;
@@ -1744,9 +1788,14 @@ void watch_look(int t, float cam) {
     g_ctl.look_from = 0;
 }
 
+// after a save and a cell the arrival waits on frames, so the script counts from the take
+bool g_took;
+
 void control_tick() {
     const ControlScript &s = *g_ctl.script;
     float cam = fnv::player()->rot[2];
+    g_took = g_took || taken();
+    if (g_save_cell && g_config.autotake && !g_took) return;
     int t = ++g_ctl.tick;
     if (taken()) {
         // menus and the console still see the keys, mario must not
@@ -1984,11 +2033,9 @@ void tick_control_scenario(const ControlScript &script) {
     g_ctl.script = &script;
     if (g_ctl.started) return control_frame();
     fnv::TESObjectCELL *c = settle_cell();
-    // a cell gone to after a save loads must settle too, the save's own cell is there first
-    // it has settled once already, so mario takes then rather than waiting for an arrival
-    bool settles = own_take() || (!g_config.load.empty() && !g_config.cell.empty());
-    g_ctl.started = !g_cell_after_load && (settles ? c != nullptr : loaded_cell() != nullptr);
-    if (g_ctl.started && settles) take_control();
+    bool there = !g_cell_after_load && loaded_cell() && loaded_cell() != g_save_cell;
+    g_ctl.started = own_take() ? c != nullptr : there;
+    if (g_ctl.started && own_take()) take_control();
 }
 
 void on_frame() {
