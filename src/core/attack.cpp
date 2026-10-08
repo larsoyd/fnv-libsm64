@@ -9,6 +9,8 @@ static const uint32_t kPunching = 0x00100000, kKicking = 0x00200000, kTripping =
 static const float kReach = 90;
 // the kick that ends the punches throws a person some 260 units and 50 up
 static const float kFinisherPush = 60, kFinisherLift = 50;
+// a slide kick takes people off their feet along the ground like bowling pins
+static const float kSlidePush = 40, kSlideLift = 20;
 
 Attack attack_now(uint32_t action, uint32_t flags) {
     switch (action) {
@@ -20,7 +22,7 @@ Attack attack_now(uint32_t action, uint32_t flags) {
         return flags & kKicking ? Attack::kick : Attack::none;
     case 0x018008AA:
     case 0x0080045A:
-        return Attack::kick;
+        return Attack::slide;
     // sm64 does not count the long jump as an attack, here it lands like a dive
     case 0x0188088A:
     case 0x00880456:
@@ -41,7 +43,9 @@ AttackProfile attack_profile(Attack kind) {
     case Attack::kick:
         return {1.2f, kReach * 1.15f, 0.5f, 6};
     case Attack::finisher:
-        return {1.2f, kReach * 1.15f, 0.5f, kFinisherPush, kFinisherLift};
+        return {1.2f, kReach * 1.15f, 0.5f, kFinisherPush, kFinisherLift, true};
+    case Attack::slide:
+        return {1.2f, kReach * 1.15f, 0.5f, kSlidePush, kSlideLift, true};
     case Attack::dive:
         return {1.1f, kReach * 1.35f, 0.25f, 5};
     case Attack::pound:
@@ -139,10 +143,14 @@ bool Swing::lands(uint32_t target) {
     return true;
 }
 
-bool Thrown::allow(uint32_t target, int tick) {
+bool Thrown::resting(uint32_t target, int tick) const {
     auto it = last_.find(target);
-    if (it != last_.end() && tick - it->second < kTicks) return false;
-    last_[target] = tick;
+    return it != last_.end() && tick - it->second < kTicks;
+}
+
+bool Thrown::allow(uint32_t target, int tick) {
+    if (resting(target, tick)) return false;
+    mark(target, tick);
     return true;
 }
 

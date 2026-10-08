@@ -356,6 +356,18 @@ const ScriptLine kDeathScript[] = {
     {40, "health"}, {60, "player.Kill"}, {100, "health"}, {120, "state"},
 };
 const ControlScript kDeath{kDeathScript, {}, {}, 130};
+// three settlers in a row up the street and a slide kick through them
+const ScriptLine kBowlingScript[] = {
+    {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"},
+    {42, "place 00104F02"}, {52, "set 00104F02 860 0"}, {53, "of 00104F02 SetRestrained 1"},
+    {55, "place 00104F07"}, {65, "set 00104F07 940 30"}, {66, "of 00104F07 SetRestrained 1"},
+    {68, "place 00104F09"}, {78, "set 00104F09 940 -30"}, {79, "of 00104F09 SetRestrained 1"},
+    {86, "body 00104F02"}, {86, "body 00104F07"}, {86, "body 00104F09"}, {87, "spot start"}, {88, "HoldKey 17"},
+    {130, "of 00104F02 SetRestrained 0"}, {130, "of 00104F07 SetRestrained 0"}, {130, "of 00104F09 SetRestrained 0"},
+    {128, "HoldKey 29"}, {128, "spot slide"}, {132, "HoldKey 42"}, {134, "ReleaseKey 42"}, {138, "ReleaseKey 29"}, {150, "ReleaseKey 17"},
+    {170, "body 00104F02"}, {170, "body 00104F07"}, {170, "body 00104F09"},
+};
+const ControlScript kBowling{kBowlingScript, {}, {}, 180};
 // two punches on a friendly ncr trooper and no kick to floor him, he shoots back on his own
 const ScriptLine kAggroScript[] = {
     {40, "player.SetAngle Z 90"}, {42, "place 000E529C"}, {55, "of 000E529C SetRestrained 1"}, {60, "beside -70 0 90 000E529C"},
@@ -856,7 +868,9 @@ void sync_actors() {
     // one being squashed is flat, so he is not in mario's way nor hit again
     std::erase_if(g_near, [](const LiveActor &a) { return std::ranges::any_of(g_squashed, [&](const Squashed &q) { return q.id == a.body.id; }); });
     std::vector<ActorBody> bodies;
-    for (const LiveActor &a : g_near) bodies.push_back(a.body);
+    // someone thrown or knocked down lies on the ground, mario slides and runs over him
+    for (const LiveActor &a : g_near)
+        if (!knocked(a.ref) && !g_thrown.resting(a.body.id, g_ctl.tick)) bodies.push_back(a.body);
     g_boxes.sync(g_sim.frame, bodies);
 }
 
@@ -1147,7 +1161,7 @@ void log_sound(const char *name) {
     g_sound_from = now;
 }
 
-const char *kAttackNames[] = {"none", "punch", "kick", "dive", "pound", "finisher"};
+const char *kAttackNames[] = {"none", "punch", "kick", "dive", "pound", "finisher", "slide"};
 
 // the blow mario is throwing lands on whoever it reaches, once each
 // a thrown actor is struck this many ticks later, a death in the same frame eats the throw
@@ -1182,7 +1196,8 @@ void land_blows(int t) {
     for (const LiveActor &a : g_near) {
         if (!attack_reaches(p, feet, LastFit::kHeight / scale, heading, a.body) || !g_swing.lands(a.body.id)) continue;
         // the game throws only the living, so the blow lands after the throw and a corpse flies on
-        bool thrown = p.push > 0 && (now == Attack::finisher || g_thrown.allow(a.body.id, t));
+        bool thrown = p.push > 0 && (p.always_throws || g_thrown.allow(a.body.id, t));
+        if (thrown) g_thrown.mark(a.body.id, t);
         if (thrown) logf("attack push tick=%d ref=%08X force=%.1f ok=%d", t, a.body.id, p.push, shove(a.ref, {feet.x, feet.y, feet.z - p.lift}, p.push));
         if (thrown) g_late.push_back({a.body.id, t + kStrikeAfterThrow, now, asked, unarmed, skill});
         else deal(t, a, now, asked, unarmed, skill);
@@ -1191,7 +1206,7 @@ void land_blows(int t) {
         Vec3 s = to_sm64(g_sim.frame, {n.x, n.y, a.body.feet.z});
         bool met = sm64_mario_attack(g_sim.id, s.x, s.y, s.z, a.body.height * scale);
         // sm64 bursts shards off what a fist or a foot meets, the flag comes too late for this tick
-        if (met && (now == Attack::punch || now == Attack::kick || now == Attack::finisher)) {
+        if (met && (now == Attack::punch || now == Attack::kick || now == Attack::finisher || now == Attack::slide)) {
             g_puffs.hits++;
             if (g_config.particles) g_particles.emit(kPuffHit, g_ticks.cur_pos, g_sim.state.faceAngle);
         }
@@ -1229,7 +1244,7 @@ const uint32_t kActFlagAir = 0x800;
 // ticks a squashed person lies flat before he dies
 const int kSquashTicks = 30;
 
-void restrain(fnv::TESObjectREFR *actor, bool on) { g_console->runScriptLine(on ? "SetRestrained 1" : "SetRestrained 0", actor); }
+void restrain(fnv::TESObjectREFR *actor) { g_console->runScriptLine("SetRestrained 1", actor); }
 
 // the highest mario gets in the ticks after a stomp, a low ceiling can cut the bounce short
 const int kBounceLook = 3;
@@ -1287,7 +1302,7 @@ void land_stomps(int t, Stomp move, Vec3 was) {
         logf("attack hit tick=%d kind=stomp ref=%08X damage=%.1f health=%.1f>%.1f", t, hit->body.id, dealt, before, actor_health(a));
     }
     if (out != StompOutcome::squash) return;
-    restrain(a, true);
+    restrain(a);
     g_squashed.push_back({hit->body.id, t, skeleton_of(a), head});
     logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, g_squashed.back().skeleton.root != nullptr, head);
 }
@@ -1340,6 +1355,23 @@ void place_actor(const char *args) {
     char line[64];
     snprintf(line, sizeof line, "player.PlaceAtMe %08X 1", base);
     run_console(line);
+}
+
+// stands the actor a base form was last placed as so far east and north of mario
+void set_placed(const char *args) {
+    unsigned base;
+    float dx, dy;
+    fnv::TESObjectREFR *a = sscanf(args, "%x %f %f", &base, &dx, &dy) == 3 ? placed(base) : nullptr;
+    if (!a) return finish(false, "set");
+    Vec3 m = mario_pos();
+    char line[64];
+    snprintf(line, sizeof line, "SetPos X %.1f", m.x + dx);
+    g_console->runScriptLine(line, a);
+    snprintf(line, sizeof line, "SetPos Y %.1f", m.y + dy);
+    g_console->runScriptLine(line, a);
+    snprintf(line, sizeof line, "SetPos Z %.1f", m.z);
+    g_console->runScriptLine(line, a);
+    logf("set ref=%08X at=%.1f,%.1f,%.1f", a->form.refID, m.x + dx, m.y + dy, m.z);
 }
 
 // a console line run on the actor a base form was last placed as
@@ -1462,6 +1494,7 @@ void control_tick() {
         else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
         else if (!strncmp(line.line, "of ", 3)) run_on_placed(line.line + 3);
         else if (!strncmp(line.line, "place ", 6)) place_actor(line.line + 6);
+        else if (!strncmp(line.line, "set ", 4)) set_placed(line.line + 4);
         else if (!strcmp(line.line, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
@@ -1655,6 +1688,7 @@ void on_frame() {
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
+    else if (g_config.scenario == "bowling") tick_control_scenario(kBowling);
     else if (g_config.scenario == "aggro") tick_control_scenario(kAggro);
     else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
