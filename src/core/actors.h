@@ -14,6 +14,11 @@ struct ActorBody {
     float half_width, half_length, height;
 };
 
+// the box libsm64 holds for a body in game units, never narrower than mario's wall probe
+ActorBody actor_box(const ActorBody &a, float scale);
+// how far under the top of its box a body's ridge starts to slope
+float actor_ridge(const ActorBody &box);
+
 // upright sides under a ridge too steep to stand on, in sm64 units around the feet
 std::vector<SM64Surface> actor_surfaces(float half_x, float half_z, float height);
 

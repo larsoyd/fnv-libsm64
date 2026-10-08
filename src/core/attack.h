@@ -31,6 +31,16 @@ bool attack_reaches(const AttackProfile &p, Vec3 feet, float height, float headi
 // the spot on the body's sides nearest to p, across the ground
 Vec3 nearest_on(const ActorBody &target, Vec3 p);
 
+enum class Stomp { none, stomp, pound };
+// whether mario is coming down of his own accord, a pound apart from any other fall
+// judged before the tick, since the tick he lands on has him on his feet already
+Stomp stomp_move(uint32_t action, float vel_y);
+// his feet came down on the target's head this tick, from a fall that topped out at peak
+bool stomps(float peak, Vec3 was, Vec3 now, const ActorBody &target, float scale);
+
+// sends mario back up off a head with sm64's own bounce, he has landed on it already
+void stomp_bounce(int32_t id, const SM64MarioState &st);
+
 // one blow hits each target once however many ticks it lasts
 class Swing {
 public:

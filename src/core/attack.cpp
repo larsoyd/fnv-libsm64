@@ -65,6 +65,44 @@ bool attack_reaches(const AttackProfile &p, Vec3 feet, float height, float headi
     return (dx * std::sin(heading) + dy * std::cos(heading)) / gap >= p.cone;
 }
 
+static const uint32_t kGroupMask = 0x1C0, kGroupAirborne = 0x080, kIntangible = 0x1000, kInvulnerable = 0x20000;
+
+Stomp stomp_move(uint32_t action, float vel_y) {
+    if ((action & kGroupMask) != kGroupAirborne || action & (kIntangible | kInvulnerable) || vel_y >= 0) return Stomp::none;
+    return action == 0x008008A9 ? Stomp::pound : Stomp::stomp;
+}
+
+// game units, a stomp may land this far past the person's sides and this near the top
+static const float kStompMargin = 10, kLanded = 1;
+
+// how high the top of a box is over a spot, it slopes up from the edge at 45 degrees
+static float top_at(const ActorBody &box, Vec3 p) {
+    float fx = std::sin(box.heading), fy = std::cos(box.heading), dx = p.x - box.feet.x, dy = p.y - box.feet.y;
+    float inside = std::min(box.half_length - std::fabs(dx * fx + dy * fy), box.half_width - std::fabs(dx * fy - dy * fx));
+    float ridge = actor_ridge(box);
+    return box.feet.z + box.height - ridge + std::clamp(inside, 0.0f, ridge);
+}
+
+bool stomps(float peak, Vec3 was, Vec3 now, const ActorBody &target, float scale) {
+    ActorBody box = actor_box(target, scale), person = target;
+    person.half_width += kStompMargin, person.half_length += kStompMargin;
+    Vec3 n = nearest_on(person, now);
+    if (peak < box.feet.z + box.height || now.z >= was.z || std::hypot(n.x - now.x, n.y - now.y) > 0.5f) return false;
+    return was.z > top_at(box, was) + kLanded && now.z <= top_at(box, now) + kLanded;
+}
+
+// sm64 units a tick, what sm64 gives mario off a goomba, and its bounce sound
+static const float kBounce = 30;
+static const int32_t kSoundBounce = 0x0459B081;
+static const uint32_t kActFreefall = 0x0100088C;
+
+void stomp_bounce(int32_t id, const SM64MarioState &st) {
+    sm64_set_mario_action(id, kActFreefall);
+    sm64_set_mario_velocity(id, st.velocity[0], kBounce, st.velocity[2]);
+    sm64_set_mario_forward_velocity(id, st.forwardVelocity);
+    sm64_play_sound_global(kSoundBounce);
+}
+
 void Swing::tick(Attack now) {
     if (now != now_) hit_.clear();
     now_ = now;

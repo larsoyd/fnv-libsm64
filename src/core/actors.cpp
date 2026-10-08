@@ -39,6 +39,14 @@ SM64ObjectTransform placing(const Frame &f, const ActorBody &a) {
 
 }
 
+ActorBody actor_box(const ActorBody &a, float scale) {
+    ActorBody b = a;
+    b.half_width = std::max(a.half_width, kLeastHalf / scale), b.half_length = std::max(a.half_length, kLeastHalf / scale);
+    return b;
+}
+
+float actor_ridge(const ActorBody &box) { return std::min({box.half_width, box.half_length, box.height}); }
+
 std::vector<SM64Surface> actor_surfaces(float half_x, float half_z, float height) {
     float hx = std::max(half_x, kLeastHalf), hz = std::max(half_z, kLeastHalf);
     // the top comes in by the narrower half all round, so it rises at 45 degrees or more
