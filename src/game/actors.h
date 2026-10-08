@@ -33,13 +33,14 @@ bool actor_standing(const fnv::TESObjectREFR *actor);
 // a character rather than a creature
 bool is_person(const fnv::TESObjectREFR *actor);
 
-// a skeleton's root, which animation leaves alone, so scaling it scales the body
+// a skeleton's root, and the node of ours it hangs from once it is being squashed
 struct Skeleton {
-    void *root = nullptr;
-    float rot[9];
+    void *root = nullptr, *squash = nullptr;
 };
 Skeleton skeleton_of(fnv::TESObjectREFR *actor);
-// height across the skeleton's own up and width along the ground, 1 puts it back as it was
+// hangs the skeleton from a node of ours as the game moves both nodes above it
+bool begin_squash(Skeleton &s);
+// height along the body's up and width along the ground, 1 puts it back as it was
 void squash_skeleton(const Skeleton &s, float height, float width);
 // how high the head is over the feet as the body is drawn, -1 without a head
 float head_height(fnv::TESObjectREFR *actor);

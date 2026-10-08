@@ -47,12 +47,17 @@ void stomp_bounce(int32_t id, const SM64MarioState &st);
 
 // what mario lands on, and what landing on it with a fall or a pound does
 struct StompTarget {
-    bool hostile, person, humanoid;
+    bool hostile, skeleton;
     float height;
     bool essential;
 };
-enum class StompOutcome { bounce, hit, squash, gib };
-StompOutcome stomp_outcome(const StompTarget &t, Stomp move);
+// what the player chose, by default people up to 1.3 times the usual height squash
+struct StompRules {
+    bool spare_friends = false;
+    float tallest = 172;
+};
+enum class StompOutcome { stand, hit, squash, gib };
+StompOutcome stomp_outcome(const StompTarget &t, Stomp move, const StompRules &rules);
 
 // how flat and how wide a stomped person is so many ticks after
 struct Squash {

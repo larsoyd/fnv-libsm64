@@ -18,6 +18,7 @@ enum : uint8_t {
     kKeyLCtrl = 0x1D,
     kKeyRCtrl = 0x9D,
     kKeyM = 0x32,
+    kKeyN = 0x31,
 };
 
 struct Pad {
@@ -49,6 +50,8 @@ bool toggle_held(const uint8_t *keys, const GamepadState &pad);
 
 // e on the keyboard or y on the gamepad
 bool activate_held(const uint8_t *keys, const GamepadState &pad);
+// the key that opens mario's options
+bool options_held(const uint8_t *keys);
 
 // a thunk jump, through an import slot or straight to a function some plugin put there
 struct Jump {

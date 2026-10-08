@@ -1,4 +1,6 @@
 #pragma once
+#include "attack.h"
+
 #include <cstddef>
 #include <set>
 #include <string>
@@ -18,6 +20,9 @@ struct Config {
     // damage of one punch before the target's armour
     float punch = 20;
     bool particles = true;
+    // the power meter over the game while the courier is hurt
+    bool meter = true;
+    StompRules stomp;
     std::vector<std::string> errors;
 };
 

@@ -193,12 +193,13 @@ bool chase_setting_ok() {
 
 }
 
-bool read_game_pad(Pad &pad, bool &toggle, bool &activate) {
+bool read_game_pad(Pad &pad, bool &toggle, bool &activate, bool &options) {
     auto *g = *reinterpret_cast<uint8_t **>(kInputGlobals);
     if (!g || !(field<uint32_t>(g, 0x04) & kHasKeyboard)) return false;
     pad = merge_pads(read_pad(g + 0x18F8, g + 0x1B30), read_gamepad(g_pad));
     toggle = toggle_held(g + 0x18F8, g_pad);
     activate = activate_held(g + 0x18F8, g_pad);
+    options = options_held(g + 0x18F8);
     return true;
 }
 

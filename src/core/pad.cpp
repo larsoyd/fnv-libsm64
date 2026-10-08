@@ -42,6 +42,8 @@ bool toggle_held(const uint8_t *keys, const GamepadState &pad) { return down(key
 
 bool activate_held(const uint8_t *keys, const GamepadState &pad) { return down(keys, kKeyE) || (pad.buttons & kPadY); }
 
+bool options_held(const uint8_t *keys) { return down(keys, kKeyN); }
+
 bool PacketGate::fresh(uint32_t packet) {
     bool fresh = !seen || packet != last;
     last = packet, seen = true;

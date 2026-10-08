@@ -8,6 +8,7 @@
 #include "core/geo.h"
 #include "core/health.h"
 #include "core/hud.h"
+#include "core/options.h"
 #include "core/mesh.h"
 #include "core/puffs.h"
 #include "core/reach.h"
@@ -26,6 +27,7 @@
 #include "game/fnv.h"
 #include "game/log.h"
 #include "game/nvse.h"
+#include "game/menu.h"
 #include "game/overlay.h"
 #include "game/render.h"
 #include "game/sound.h"
@@ -382,21 +384,41 @@ const ScriptLine kTrooperScript[] = {
     {310, "health"},
 };
 const ControlScript kTrooper{kTrooperScript, {}, {}, 320};
-// a gecko hunting the hills by goodsprings, mario stands near and does nothing
-const ScriptLine kGeckoScript[] = {
-    {20, "player.moveto 0016518D"}, {80, "face 0016518D 250"}, {86, "spot near"}, {90, "aware 1500"}, {120, "aware 1500"},
-    {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"}, {240, "aware 1500"}, {270, "aware 1500"},
-    {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"}, {390, "aware 1500"}, {82, "actors 1500"},
-    {150, "actors 1500"}, {250, "actors 1500"}, {88, "health"}, {250, "health"}, {410, "health"},
-    {160, "spot after"},
+// a creature of the game's where it lives, mario stands 250 off and does nothing
+const ScriptLine kWildScript[] = {
+    {20, "player.moveto %08X"}, {80, "face %08X 250"}, {86, "spot near"}, {88, "health"}, {82, "actors 1500"},
+    {90, "aware 1500"}, {120, "aware 1500"}, {150, "aware 1500"}, {180, "aware 1500"}, {210, "aware 1500"},
+    {240, "aware 1500"}, {270, "aware 1500"}, {300, "aware 1500"}, {330, "aware 1500"}, {360, "aware 1500"},
+    {390, "aware 1500"}, {150, "actors 1500"}, {160, "spot after"}, {250, "health"}, {410, "health"},
 };
-const ControlScript kGecko{kGeckoScript, {}, {}, 420};
-// pounds on a friend, on him frenzied, on an essential foe, then with bloody mess owned
+const ControlScript kWild{kWildScript, {}, {}, 420};
+// the same creature dropped on while it bites the courier, again in case it moved off
+const ScriptLine kWildStompScript[] = {
+    {20, "player.moveto %08X"}, {80, "face %08X 250"}, {82, "actors 1500"}, {140, "actors 1500"}, {162, "over 190 90 %08X"},
+    {182, "over 190 90 %08X"}, {202, "over 190 90 %08X"}, {240, "actors 1500"},
+};
+const ControlScript kWildStomp{kWildStompScript, {}, {}, 260};
+struct Wild {
+    const char *scenario;
+    uint32_t ref;
+    const ControlScript &script = kWild;
+};
+// one of each kind that goes for the courier, none of them left to spawn chance
+const Wild kWildlife[] = {
+    {"gecko", 0x0016518D}, {"usergecko", 0x0016518D}, {"wild_firegecko", 0x00168CC8}, {"wild_fireant", 0x0015E959},
+    {"wild_ant", 0x00168AF1}, {"wild_bloatfly", 0x0015C6F8}, {"wild_coyote", 0x001728AA}, {"wild_nightstalker", 0x00164A73},
+    {"wild_cazador", 0x00168CC2}, {"wild_deathclaw", 0x000E62E5}, {"wild_radscorpion", 0x00174BDD}, {"wild_ghoul", 0x00168B36},
+    {"coyotestomp", 0x001728AA, kWildStomp},
+};
+
+const Wild *wildlife(const std::string &scenario) {
+    auto it = std::ranges::find(kWildlife, scenario, &Wild::scenario);
+    return it == std::end(kWildlife) ? nullptr : it;
+}
+// a pound on a friend, then on an essential foe, then with bloody mess owned
 const ScriptLine kPoundScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
     {58, "body 00104F02"}, {60, "over 200 90 00104F02"}, {63, "HoldKey 29"}, {66, "ReleaseKey 29"}, {100, "body 00104F02"},
-    {105, "of 00104F02 SetAV Aggression 3"}, {110, "beside -200 60 90 00104F02"}, {120, "over 200 90 00104F02"}, {123, "HoldKey 29"},
-    {126, "ReleaseKey 29"}, {150, "beside -200 60 90 00104F02"}, {160, "body 00104F02"},
     {170, "place 00104F02"}, {185, "of 00104F02 SetRestrained 1"}, {186, "of 00104F02 SetAV Aggression 3"},
     {187, "of 00104F02 SetActorRefEssential 1"}, {190, "over 200 90 00104F02"}, {193, "HoldKey 29"}, {196, "ReleaseKey 29"},
     {220, "body 00104F02"},
@@ -404,7 +426,7 @@ const ScriptLine kPoundScript[] = {
     {246, "of 00104F02 SetAV Aggression 3"}, {250, "over 200 90 00104F02"}, {253, "HoldKey 29"}, {256, "ReleaseKey 29"},
     {280, "body 00104F02"},
 };
-const int kPoundShots[] = {116, 154};
+const int kPoundShots[] = {72, 104};
 const ControlScript kPound{kPoundScript, {}, kPoundShots, 290};
 // two punches and the closing kick on a healthy settler, then on one at death's door
 const ScriptLine kFinisherScript[] = {
@@ -419,16 +441,29 @@ const ScriptLine kFinisherScript[] = {
 };
 const int kFinisherShots[] = {98};
 const ControlScript kFinisher{kFinisherScript, {}, kFinisherShots, 240};
-// mario dropped on a settler's head and then on a coyote's
+// the n key opens mario's options, a pick steps one and saves it and the box comes back
+// the cursor rests on the middle of the box, on dust and stars
+const ScriptLine kOptionsScript[] = {
+    {40, "HoldKey 49"}, {42, "ReleaseKey 49"}, {60, "HoldKey 256"}, {62, "ReleaseKey 256"}, {80, "HoldKey 256"},
+    {82, "ReleaseKey 256"},
+};
+const int kOptionsShots[] = {55, 70, 95};
+const ControlScript kOptions{kOptionsScript, {}, kOptionsShots, 110};
+// mario dropped on a friendly settler's head and then on a coyote's
 const ScriptLine kStompScript[] = {
     {40, "player.SetAngle Z 90"}, {41, "player.SetGhost 1"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"},
-    {60, "actors 600"}, {65, "over 200 90 00104F02"}, {90, "of 00104F02 SetAV Aggression 3"},
-    {116, "flat_beside -140 0 90"}, {150, "actors 600"},
-    {155, "place 00168D08"}, {170, "of 00168D08 SetRestrained 1"}, {172, "of 00168D08 SetAV Aggression 3"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
+    {60, "actors 600"}, {65, "over 200 90 00104F02"}, {80, "flat_beside -140 0 90"}, {150, "actors 600"},
+    {155, "place 00168D08"}, {170, "of 00168D08 SetRestrained 1"}, {175, "actors 600"}, {180, "over 190 90 00168D08"},
     {230, "actors 600"},
 };
-const int kStompShots[] = {64, 122};
+const int kStompShots[] = {64, 86};
 const ControlScript kStomp{kStompScript, {}, kStompShots, 240};
+// with friends spared, a stomp on the settler's head
+const ScriptLine kSpareScript[] = {
+    {40, "player.SetAngle Z 90"}, {42, "place 00104F02"}, {55, "of 00104F02 SetRestrained 1"}, {60, "body 00104F02"},
+    {65, "over 200 90 00104F02"}, {108, "body 00104F02"}, {150, "body 00104F02"},
+};
+const ControlScript kSpare{kSpareScript, {}, {}, 160};
 // the saloon: who is there, a doorway with a bare strip, a coyote without bounds
 const ScriptLine kSaloonScript[] = {
     {40, "actors 3000"}, {45, "player.SetAngle Z 0"}, {47, "mario -385 40 3456 0"}, {60, "spot south"},
@@ -597,7 +632,7 @@ struct Control {
     bool started = false, placed = false, blocked = false;
     // frames spent with the player still mario's and no mario, 0 when he has one or is let go
     int carry = 0;
-    Press toggle, activate;
+    Press toggle, activate, options;
     // when the camera stick was pushed over and which way the player faced then
     int look_from = 0;
     float look_cam = 0;
@@ -605,6 +640,10 @@ struct Control {
     fnv::TESObjectCELL *cell = nullptr;
     uintptr_t place = 0;
     const ControlScript *script = nullptr;
+    // the options box comes back once the one a pick was made in has closed
+    bool reopen = false;
+    // the creature a shared script is about, its form id fills each %08X
+    uint32_t who = 0;
 };
 Control g_ctl;
 ArrivalWatch g_arrival(kSettleFrames);
@@ -632,6 +671,26 @@ std::string read_text(const std::string &path) {
     return {b.begin(), b.end()};
 }
 
+std::string ini_path() { return g_dir + "Data\\NVSE\\Plugins\\sm64nv.ini"; }
+
+void open_options() {
+    if (show_options(g_config)) logf("options shown tick=%d", g_ctl.tick);
+    else logf("refused: options box tick=%d", g_ctl.tick);
+}
+
+// a pick steps that option and saves it, the box comes back until done is picked
+void choose_option(int pick) {
+    const std::vector<Option> &all = game_options();
+    if (pick >= (int)all.size()) return logf("options closed tick=%d", g_ctl.tick);
+    step_option(all[pick], g_config);
+    std::string text = write_config(read_text(ini_path()), g_config);
+    FILE *f = fopen(ini_path().c_str(), "wb");
+    bool saved = f && fwrite(text.data(), 1, text.size(), f) == text.size();
+    if (f) fclose(f);
+    logf("options set tick=%d key=%s value=%.2f saved=%d", g_ctl.tick, all[pick].key, all[pick].get(g_config), saved);
+    g_ctl.reopen = true;
+}
+
 // libsm64's audio code prints on every note
 MessageKinds g_lib_messages(64);
 
@@ -640,7 +699,7 @@ void libsm64_print(const char *msg) {
 }
 
 void on_post_load() {
-    g_config = parse_config(read_text(g_dir + "Data\\NVSE\\Plugins\\sm64nv.ini"));
+    g_config = parse_config(read_text(ini_path()));
     if (!g_config.errors.empty()) {
         logf("refused: config %s", g_config.errors[0].c_str());
         return;
@@ -1303,7 +1362,7 @@ void show_hud() {
     overlay_size(w, h);
     std::vector<OverlayQuad> quads;
     bool wiping = taken() && g_death.wipe_frame() >= 0 && h > 0;
-    if (taken() && !g_ctl.blocked && !wiping && g_hud.shown() && h > 0) quads.push_back({meter_quad(g_hud.y(), g_hud.wedges(), w, h), g_meter_picture});
+    if (g_config.meter && taken() && !g_ctl.blocked && !wiping && g_hud.shown() && h > 0) quads.push_back({meter_quad(g_hud.y(), g_hud.wedges(), w, h), g_meter_picture});
     // bowser's wipe takes the place of the meter and covers every menu
     if (wiping)
         for (const HudQuad &q : wipe_quads(g_death.wipe_frame(), w, h)) quads.push_back({q, q.textured ? g_bowser_picture : -1});
@@ -1355,15 +1414,19 @@ void land_stomps(int t, Stomp move, Vec3 was) {
     if (hit == g_near.end()) return;
     fnv::TESObjectREFR *a = hit->ref;
     int disposition;
-    bool hostile = hostile_to_player(a, disposition);
+    // a creature biting the courier may still not count as one that should attack him
+    bool hostile = hostile_to_player(a, disposition) || combat_target(a) == fnv::player();
     float head = head_height(a);
     // the landing is all this blow does to its target, the pound's shock skips him
     g_swing.lands(hit->body.id);
     bool essential = actor_essential(a);
-    StompOutcome out = stomp_outcome({hostile, is_person(a), skeleton_of(a).root && head > 0, hit->body.height, essential}, move);
-    static const char *kOutcomes[] = {"bounce", "hit", "squash", "gib"};
-    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s hostile=%d disposition=%d essential=%d", t, hit->body.id, kOutcomes[(int)out],
-         peak - hit->body.feet.z, xyz(now).c_str(), hostile, disposition, essential);
+    StompOutcome out = stomp_outcome({hostile, skeleton_of(a).root && head > 0, hit->body.height, essential}, move, g_config.stomp);
+    static const char *kOutcomes[] = {"stand", "hit", "squash", "gib"};
+    fnv::TESObjectREFR *target = combat_target(a);
+    logf("stomp tick=%d ref=%08X kind=%s peak=%.1f at=%s hostile=%d disposition=%d essential=%d target=%08X", t, hit->body.id,
+         kOutcomes[(int)out], peak - hit->body.feet.z, xyz(now).c_str(), hostile, disposition, essential, target ? target->form.refID : 0);
+    // one he spares he lands on and stands on
+    if (out == StompOutcome::stand) return;
     g_bounce = {t + kBounceLook, now.z, now.z};
     // a pound that blows its target apart carries on down, anything else bounces him off
     if (out == StompOutcome::gib) return blow_apart(t, *hit);
@@ -1375,8 +1438,10 @@ void land_stomps(int t, Stomp move, Vec3 was) {
     }
     if (out != StompOutcome::squash) return;
     restrain(a);
-    g_squashed.push_back({hit->body.id, t, skeleton_of(a), head});
-    logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, g_squashed.back().skeleton.root != nullptr, head);
+    Skeleton bones = skeleton_of(a);
+    bool hung = begin_squash(bones);
+    g_squashed.push_back({hit->body.id, t, bones, head});
+    logf("squash start tick=%d ref=%08X skeleton=%d head=%.1f", t, hit->body.id, hung, head);
 }
 
 // the squashed flatten like sm64's goombas, then burst apart as the player's kill
@@ -1409,11 +1474,11 @@ void log_actors(float reach) {
     logf("control actors tick=%d near=%u seen=%d far=%d down=%d unsized=%d boxes=%u", g_ctl.tick, (unsigned)found.size(), st.seen,
          st.away, st.down, st.unsized, (unsigned)g_boxes.size());
     for (const LiveActor &a : found)
-        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d sized=%s solid=%d", a.body.id,
+        logf("actor ref=%08X base=%08X type=%02X pos=%s heading=%.0f half=%.1f,%.1f height=%.1f dist=%.1f health=%.1f knocked=%d sized=%s solid=%d target=%08X", a.body.id,
              a.ref->baseForm->refID, a.ref->baseForm->typeID, xyz(a.body.feet).c_str(), a.body.heading * 180 / 3.14159265f,
              a.body.half_width, a.body.half_length, a.body.height,
              std::hypot(a.body.feet.x - m.x, a.body.feet.y - m.y, a.body.feet.z - m.z), actor_health(a.ref), knocked(a.ref), a.sized,
-             solid_to_mario(a));
+             solid_to_mario(a), combat_target(a.ref) ? combat_target(a.ref)->form.refID : 0);
 }
 
 void log_awareness(float reach) {
@@ -1566,44 +1631,47 @@ void control_tick() {
     if (t == s.jump_to) log_sound("jump");
     for (const ScriptLine &line : s.lines) {
         if (t != line.tick) continue;
+        char filled[128];
+        const char *text = line.line;
+        if (strchr(text, '%')) snprintf(filled, sizeof filled, text, g_ctl.who), text = filled;
         ControlState cs = control_state();
         logf("control focus tick=%d foreground=%d active=%d", t, cs.foreground, cs.active);
         if (!cs.foreground) return finish(false, "no_focus");
         // pad lines are for the virtual gamepad that follows this log
-        if (!strncmp(line.line, "pad ", 4)) logf("control pad tick=%d %s", t, line.line + 4);
-        else if (!strncmp(line.line, "mario ", 6)) teleport_mario(line.line + 6);
-        else if (!strncmp(line.line, "beside ", 7)) teleport_beside(line.line + 7);
-        else if (!strncmp(line.line, "over ", 5)) teleport_over(line.line + 5);
-        else if (!strncmp(line.line, "face ", 5)) teleport_facing(line.line + 5);
-        else if (!strncmp(line.line, "flat_beside ", 12)) teleport_beside_squashed(line.line + 12);
-        else if (!strcmp(line.line, "sound pause")) sound_pause();
-        else if (!strcmp(line.line, "sound status")) log_sound_status();
-        else if (!strcmp(line.line, "doors")) log_doors();
-        else if (!strncmp(line.line, "open ", 5)) open_door(line.line + 5);
-        else if (!strcmp(line.line, "puffs")) log_puffs();
-        else if (!strcmp(line.line, "health")) log_health("status");
-        else if (!strcmp(line.line, "overlay")) log_overlay();
-        else if (!strcmp(line.line, "hudshot")) {
+        if (!strncmp(text, "pad ", 4)) logf("control pad tick=%d %s", t, text + 4);
+        else if (!strncmp(text, "mario ", 6)) teleport_mario(text + 6);
+        else if (!strncmp(text, "beside ", 7)) teleport_beside(text + 7);
+        else if (!strncmp(text, "over ", 5)) teleport_over(text + 5);
+        else if (!strncmp(text, "face ", 5)) teleport_facing(text + 5);
+        else if (!strncmp(text, "flat_beside ", 12)) teleport_beside_squashed(text + 12);
+        else if (!strcmp(text, "sound pause")) sound_pause();
+        else if (!strcmp(text, "sound status")) log_sound_status();
+        else if (!strcmp(text, "doors")) log_doors();
+        else if (!strncmp(text, "open ", 5)) open_door(text + 5);
+        else if (!strcmp(text, "puffs")) log_puffs();
+        else if (!strcmp(text, "health")) log_health("status");
+        else if (!strcmp(text, "overlay")) log_overlay();
+        else if (!strcmp(text, "hudshot")) {
             char name[64];
             snprintf(name, sizeof name, "ScreenShotSM64_%03d.bmp", t);
             overlay_capture(g_dir + name);
         }
-        else if (!strncmp(line.line, "body ", 5)) log_body(line.line + 5);
-        else if (!strncmp(line.line, "aware ", 6)) log_awareness((float)atof(line.line + 6));
-        else if (!strncmp(line.line, "actors ", 7)) log_actors((float)atof(line.line + 7));
-        else if (!strncmp(line.line, "actor ", 6)) run_on_nearest(line.line + 6);
-        else if (!strncmp(line.line, "of ", 3)) run_on_placed(line.line + 3);
-        else if (!strncmp(line.line, "place ", 6)) place_actor(line.line + 6);
-        else if (!strncmp(line.line, "set ", 4)) set_placed(line.line + 4);
-        else if (!strcmp(line.line, "state")) {
+        else if (!strncmp(text, "body ", 5)) log_body(text + 5);
+        else if (!strncmp(text, "aware ", 6)) log_awareness((float)atof(text + 6));
+        else if (!strncmp(text, "actors ", 7)) log_actors((float)atof(text + 7));
+        else if (!strncmp(text, "actor ", 6)) run_on_nearest(text + 6);
+        else if (!strncmp(text, "of ", 3)) run_on_placed(text + 3);
+        else if (!strncmp(text, "place ", 6)) place_actor(text + 6);
+        else if (!strncmp(text, "set ", 4)) set_placed(text + 4);
+        else if (!strcmp(text, "state")) {
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
             logf("body chain tick=%d %s", t, node_chain(fnv::player()->renderState->niNode).c_str());
             if (!log_camera(m, cam)) return finish(false, "camera");
         }
-        else if (!strncmp(line.line, "spot ", 5))
-            logf("control spot name=%s pos=%s action=%08X", line.line + 5, xyz(m).c_str(), g_sim.state.action);
-        else run_console(line.line);
+        else if (!strncmp(text, "spot ", 5))
+            logf("control spot name=%s pos=%s action=%08X", text + 5, xyz(m).c_str(), g_sim.state.action);
+        else run_console(text);
     }
     for (int shot : s.shots) {
         if (t != shot) continue;
@@ -1710,8 +1778,8 @@ void control_frame() {
     keep_pad_hooked();
     keep_calls_hooked();
     Pad pad;
-    bool toggle, activate;
-    if (!read_game_pad(pad, toggle, activate)) return finish(false, "input_globals");
+    bool toggle, activate, options;
+    if (!read_game_pad(pad, toggle, activate, options)) return finish(false, "input_globals");
     if (pad != g_ctl.pad)
         logf("control input tick=%d forward=%.2f right=%.2f a=%d b=%d z=%d", g_ctl.tick, pad.forward, pad.right,
              pad.buttons.a, pad.buttons.b, pad.buttons.z);
@@ -1724,6 +1792,10 @@ void control_frame() {
     g_ctl.blocked = blocked;
     if (g_ctl.toggle.edge(toggle) && !blocked) held() ? release_control("key") : take_control();
     if (g_ctl.activate.edge(activate) && !blocked && taken()) use_door();
+    // a box shown while the last one is still closing never comes up
+    bool asked = g_ctl.options.edge(options);
+    if (!blocked && (asked || std::exchange(g_ctl.reopen, false))) open_options();
+    if (int pick = take_options_pick(); pick >= 0) choose_option(pick);
     if (g_done) return;
     run_ticks(control_tick);
     if (taken() && !blocked && sound_ready()) sound_pump();
@@ -1794,14 +1866,16 @@ void on_frame() {
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
-    else if (g_config.scenario == "hurt") tick_control_scenario(kHurt);
+    else if (g_config.scenario == "hurt" || g_config.scenario == "nometer") tick_control_scenario(kHurt);
     else if (g_config.scenario == "death") tick_control_scenario(kDeath);
     else if (g_config.scenario == "bowling") tick_control_scenario(kBowling);
     else if (g_config.scenario == "trooper" || g_config.scenario == "usertrooper") tick_control_scenario(kTrooper);
-    else if (g_config.scenario == "gecko" || g_config.scenario == "usergecko") tick_control_scenario(kGecko);
+    else if (const Wild *w = wildlife(g_config.scenario)) g_ctl.who = w->ref, tick_control_scenario(w->script);
     else if (g_config.scenario == "pound") tick_control_scenario(kPound);
     else if (g_config.scenario == "finisher") tick_control_scenario(kFinisher);
     else if (g_config.scenario == "stomp") tick_control_scenario(kStomp);
+    else if (g_config.scenario == "spare") tick_control_scenario(kSpare);
+    else if (g_config.scenario == "options") tick_control_scenario(kOptions);
     else if (g_config.scenario == "saloon") tick_control_scenario(kSaloon);
     else if (g_config.scenario == "padout") tick_control_scenario(kPadout);
     else if (g_config.scenario == "prison") tick_control_scenario(kPrison);

@@ -15,7 +15,7 @@ const uintptr_t kVtblCharacter = 0x01086A6C, kVtblCreature = 0x010870AC;
 const uintptr_t kVtblHighProcess = 0x01087864;
 const uint32_t kHealth = 0x10, kUnarmed = 0x2D;
 // a hit record is this large and carries its own count at the end
-const size_t kHitSize = 0x64;
+const size_t kHitSize = 0x64, kNodeSize = 0xAC;
 
 using Alloc = void *(__cdecl *)(size_t);
 using HitCall = void *(__thiscall *)(void *);
@@ -26,6 +26,11 @@ using Shove = void(__thiscall *)(void *, void *, float, float, float, float);
 using ShouldAttack = bool(__thiscall *)(void *, void *, char, int *, char);
 using LimbGone = bool(__thiscall *)(void *, int);
 using IsEssential = bool(__thiscall *)(void *);
+using NodeCtor = void *(__thiscall *)(void *, uint16_t);
+using AddChild = void(__thiscall *)(void *, void *, bool);
+using RemoveChild = void(__thiscall *)(void *, void *);
+using UpdateDown = void(__thiscall *)(void *, const void *, uint32_t);
+const uint8_t kUpdateData[12] = {};
 using LineOfSight = uint8_t(__thiscall *)(void *, char, void *, char, int *, char);
 using Detection = int(__thiscall *)(void *, char, void *, char *, char, char, int, char *);
 using CombatTarget = fnv::TESObjectREFR *(__thiscall *)(void *);
@@ -107,18 +112,29 @@ static void *find_node(void *n, const char *name, int depth = 0) {
     return nullptr;
 }
 
-Skeleton skeleton_of(fnv::TESObjectREFR *actor) {
-    Skeleton s;
-    s.root = find_node(actor->renderState->niNode, "Bip01");
-    if (s.root) memcpy(s.rot, &field<float>(s.root, 0x34), sizeof s.rot);
-    return s;
+Skeleton skeleton_of(fnv::TESObjectREFR *actor) { return {find_node(actor->renderState->niNode, "Bip01")}; }
+
+bool begin_squash(Skeleton &s) {
+    void *parent = s.root ? field<void *>(s.root, 0x18) : nullptr;
+    if (!parent || !is_ni_node(parent)) return false;
+    void *node = engine<NodeCtor>(0x00A5ECB0)(engine<Alloc>(0x00AA13E0)(kNodeSize), 0);
+    // held across the move so taking it off its parent does not free it
+    field<uint32_t>(s.root, 0x04)++;
+    virt<RemoveChild>(parent, 0xE8)(parent, s.root);
+    virt<AddChild>(node, 0xDC)(node, s.root, true);
+    field<uint32_t>(s.root, 0x04)--;
+    virt<AddChild>(parent, 0xDC)(parent, node, true);
+    s.squash = node;
+    return true;
 }
 
 void squash_skeleton(const Skeleton &s, float height, float width) {
-    if (!s.root) return;
-    // rows of the local rotation scale along the parent's axes, the last row is up
-    float *rot = &field<float>(s.root, 0x34);
-    for (int i = 0; i < 9; i++) rot[i] = s.rot[i] * (i < 6 ? width : height);
+    if (!s.squash) return;
+    // the body's own node above turns only about the up axis, so its last row is up
+    float *rot = &field<float>(s.squash, 0x34);
+    for (int i = 0; i < 9; i++) rot[i] = i % 4 ? 0 : i < 8 ? width : height;
+    // a body the game holds still is not updated by it
+    virt<UpdateDown>(s.squash, 0xA4)(s.squash, kUpdateData, 0);
 }
 
 float head_height(fnv::TESObjectREFR *actor) {

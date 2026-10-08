@@ -54,7 +54,7 @@ sm64_rename_definitions(decomp/game/interaction.c "check_kick_or_punch_wall=sm64
 sm64_rename_definitions(fake_interaction.c "fake_bounce_back_from_attack=sm64_fake_bounce_back")
 target_sources(sm64 PRIVATE src/core/blows.c)
 
-add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp src/core/actors.cpp src/core/attack.cpp src/core/particles.cpp src/core/puffs.cpp src/core/builder.cpp src/core/health.cpp src/core/mio0.cpp src/core/hud.cpp src/core/calls.cpp)
+add_library(sm64nv_core STATIC src/core/sha256.cpp src/core/rom.cpp src/core/frame.cpp src/core/surfaces.cpp src/core/config.cpp src/core/hull.cpp src/core/mesh.cpp src/core/step.cpp src/core/pad.cpp src/core/geo.cpp src/core/dds.cpp src/core/audio.cpp src/core/window.cpp src/core/stall.cpp src/core/arrival.cpp src/core/reach.cpp src/core/land.cpp src/core/walls.cpp src/core/sides.cpp src/core/trail.cpp src/core/agree.cpp src/core/regather.cpp src/core/actors.cpp src/core/attack.cpp src/core/particles.cpp src/core/puffs.cpp src/core/builder.cpp src/core/health.cpp src/core/mio0.cpp src/core/hud.cpp src/core/calls.cpp src/core/options.cpp)
 target_include_directories(sm64nv_core PUBLIC src)
 target_link_libraries(sm64nv_core PUBLIC sm64)
 target_compile_options(sm64nv_core PRIVATE -Wall -Wextra)
@@ -67,7 +67,7 @@ endif()
 if(WIN32)
     # libsm64 marks its api dllexport and the script extender skips modules with over 50 exports
     add_custom_command(TARGET sm64 POST_BUILD COMMAND ${CMAKE_OBJCOPY} --remove-section=.drectve $<TARGET_FILE:sm64>)
-    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp src/game/control.cpp src/game/sound.cpp src/game/doors.cpp src/game/actors.cpp src/game/overlay.cpp)
+    add_library(sm64nv SHARED src/game/plugin.cpp src/game/log.cpp src/game/rtti.cpp src/game/collision.cpp src/game/render.cpp src/game/control.cpp src/game/sound.cpp src/game/doors.cpp src/game/actors.cpp src/game/overlay.cpp src/game/menu.cpp)
     set_target_properties(sm64nv PROPERTIES PREFIX "")
     target_compile_options(sm64nv PRIVATE -Wall -Wextra)
     target_link_libraries(sm64nv PRIVATE sm64nv_core winmm -static -static-libgcc -static-libstdc++)

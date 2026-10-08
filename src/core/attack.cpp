@@ -112,16 +112,13 @@ void stomp_bounce(int32_t id, const SM64MarioState &st) {
     sm64_play_sound_global(kSoundBounce);
 }
 
-// game units, a person up to 1.3 times the usual 132 can be squashed
-static const float kSquashTallest = 172;
-
-StompOutcome stomp_outcome(const StompTarget &t, Stomp move) {
-    if (!t.hostile) return StompOutcome::bounce;
-    // an essential foe flattened or blown apart would still be alive
-    if (t.essential || t.height > kSquashTallest) return StompOutcome::hit;
-    // a pound blows anything apart, only a person's own skeleton can be squashed
+StompOutcome stomp_outcome(const StompTarget &t, Stomp move, const StompRules &rules) {
+    // an essential foe would live on flattened, and a friend the story needs stays one
+    if (t.essential) return t.hostile ? StompOutcome::hit : StompOutcome::stand;
+    if (!t.hostile && rules.spare_friends) return StompOutcome::stand;
+    if (t.height > rules.tallest) return StompOutcome::hit;
     if (move == Stomp::pound) return StompOutcome::gib;
-    return t.person && t.humanoid ? StompOutcome::squash : StompOutcome::hit;
+    return t.skeleton ? StompOutcome::squash : StompOutcome::hit;
 }
 
 // sm64's goomba loses this much height a tick down to its flattest, then spreads out

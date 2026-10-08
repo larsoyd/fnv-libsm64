@@ -13,7 +13,7 @@ struct ControlState {
 };
 
 // false when the game's input globals are missing or report no keyboard
-bool read_game_pad(Pad &pad, bool &toggle, bool &activate);
+bool read_game_pad(Pad &pad, bool &toggle, bool &activate, bool &options);
 // saves keep the courier's state, false when the slot is not the game's own
 bool hook_player_save(std::string &why);
 // how far the camera stick is pushed to the right, -1 to 1
