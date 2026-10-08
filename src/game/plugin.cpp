@@ -1284,6 +1284,7 @@ void land_stomps(int t, Stomp move, Vec3 was) {
 
 // the squashed flatten like sm64's goombas, then die as the player's kill
 void tick_squashed(int t) {
+    if (g_squashed.empty()) return;
     ActorStats st;
     std::vector<LiveActor> all = nearby_actors(g_sim.cell, mario_pos(), kActorReach, st);
     std::erase_if(g_squashed, [&](const Squashed &q) {
