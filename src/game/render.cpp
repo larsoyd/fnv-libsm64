@@ -58,18 +58,18 @@ void add_property(void *geom, void *prop) {
     else field<void **>(geom, 0x28) = node;
 }
 
-Shape make_shape(void *texture) {
+Shape make_shape(void *texture, uint32_t count = kVerts) {
     Shape s{};
-    s.verts = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
-    s.normals = static_cast<Vec3 *>(ni_alloc(kVerts * sizeof(Vec3)));
-    s.colors = static_cast<float *>(ni_alloc(kVerts * 4 * sizeof(float)));
-    if (texture) s.uv = static_cast<float *>(ni_alloc(kVerts * 2 * sizeof(float)));
-    auto *tris = static_cast<uint16_t *>(ni_alloc(kVerts * sizeof(uint16_t)));
-    for (uint32_t i = 0; i < kVerts; i++) tris[i] = (uint16_t)i, s.verts[i] = {0, 0, 0}, s.normals[i] = {0, 0, 1};
-    memset(s.colors, 0, kVerts * 4 * sizeof(float));
-    if (s.uv) memset(s.uv, 0, kVerts * 2 * sizeof(float));
-    s.data = engine<TriShapeDataCtor>(0xA7B630)(ni_alloc(0x58), kVerts, s.verts, s.normals, s.colors, s.uv, s.uv ? 1 : 0,
-                                                0, SM64_GEO_MAX_TRIANGLES, tris);
+    s.verts = static_cast<Vec3 *>(ni_alloc(count * sizeof(Vec3)));
+    s.normals = static_cast<Vec3 *>(ni_alloc(count * sizeof(Vec3)));
+    s.colors = static_cast<float *>(ni_alloc(count * 4 * sizeof(float)));
+    if (texture) s.uv = static_cast<float *>(ni_alloc(count * 2 * sizeof(float)));
+    auto *tris = static_cast<uint16_t *>(ni_alloc(count * sizeof(uint16_t)));
+    for (uint32_t i = 0; i < count; i++) tris[i] = (uint16_t)i, s.verts[i] = {0, 0, 0}, s.normals[i] = {0, 0, 1};
+    memset(s.colors, 0, count * 4 * sizeof(float));
+    if (s.uv) memset(s.uv, 0, count * 2 * sizeof(float));
+    s.data = engine<TriShapeDataCtor>(0xA7B630)(ni_alloc(0x58), count, s.verts, s.normals, s.colors, s.uv, s.uv ? 1 : 0,
+                                                0, count / 3, tris);
     s.shape = engine<TriShapeCtor>(0xA74480)(ni_alloc(0xC4), s.data);
     void *prop = engine<ObjCtor>(0xB6FC90)(ni_alloc(0x80));
     if (texture) {
@@ -177,5 +177,26 @@ bool mario_mesh_hidden() { return (field<uint32_t>(g_body.shape, 0x30) & 1) && (
 void take_screenshot() { engine<Screenshot>(0x878860)(0); }
 
 bool menu_mode() { return engine<MenuMode>(0x702360)() != 0; }
+
+void *create_arm_shape(const ArmPart &part) {
+    if (part.indices.empty() || part.indices.size() > UINT16_MAX || part.indices.size() % 3) return nullptr;
+    for (uint16_t i : part.indices) if (i >= part.vertices.size()) return nullptr;
+    Shape s = make_shape(nullptr, part.indices.size());
+    float bound = 0;
+    for (size_t i = 0; i < part.indices.size(); ++i) {
+        const ArmVertex &v = part.vertices[part.indices[i]];
+        s.verts[i] = v.position, s.normals[i] = v.normal;
+        float light = 0.72f + 0.20f * v.normal.z + 0.08f * v.normal.y;
+        s.colors[i * 4] = part.color.x * light;
+        s.colors[i * 4 + 1] = part.color.y * light;
+        s.colors[i * 4 + 2] = part.color.z * light;
+        s.colors[i * 4 + 3] = 1;
+        bound = std::fmax(bound, std::hypot(v.position.x, v.position.y, v.position.z));
+    }
+    field<uint16_t>(s.data, 0x0E) |= 0x0F;
+    field<Vec3>(s.data, 0x10) = {};
+    field<float>(s.data, 0x1C) = bound + 1;
+    return s.shape;
+}
 
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "core/mesh.h"
+#include "core/arm_mesh.h"
 
 #include <string>
 
@@ -19,5 +20,7 @@ std::string mario_mesh_chain();
 bool mario_mesh_hidden();
 void take_screenshot();
 bool menu_mode();
+// retained bone-local geometry, attached by the caller
+void *create_arm_shape(const ArmPart &part);
 
 }

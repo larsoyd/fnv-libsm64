@@ -56,6 +56,7 @@ Config parse_config(const std::string &text) {
         else if (key == "autotake") ok = parse_flag(value, c.autotake);
         else if (key == "punch") ok = parse_float(value, c.punch);
         else if (key == "particles") ok = parse_flag(value, c.particles);
+        else if (key == "pipboyarms") ok = parse_flag(value, c.pipboy_arms);
         else if (key == "meter") ok = parse_flag(value, c.meter);
         else if (key == "spare_friends") ok = parse_flag(value, c.stomp.spare_friends);
         else if (key == "squash_tallest") ok = parse_float(value, c.stomp.tallest);

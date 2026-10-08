@@ -20,6 +20,7 @@ struct Config {
     // damage of one punch before the target's armour
     float punch = 20;
     bool particles = true;
+    bool pipboy_arms = true;
     // the power meter over the game while the courier is hurt
     bool meter = true;
     StompRules stomp;

@@ -30,6 +30,7 @@
 #include "game/menu.h"
 #include "game/overlay.h"
 #include "game/render.h"
+#include "game/pipboy.h"
 #include "game/sound.h"
 
 #include <algorithm>
@@ -313,7 +314,52 @@ const ScriptLine kPipboyScript[] = {
     {40, "state"}, {45, "HoldKey 15"}, {48, "ReleaseKey 15"}, {110, "state"},
     {130, "HoldKey 15"}, {133, "ReleaseKey 15"}, {200, "state"},
 };
-const ControlScript kPipboy{kPipboyScript, {}, {}, 215};
+const int kPipboyShots[] = {40, 52, 65, 95, 120, 140, 155, 200};
+const ControlScript kPipboy{kPipboyScript, {}, kPipboyShots, 215};
+
+const ScriptLine kPipboyArmsScript[] = {
+    {40, "HoldKey 15"}, {43, "ReleaseKey 15"}, {95, "state"},
+    {100, "HoldKey 205"}, {103, "ReleaseKey 205"}, {135, "state"},
+    {150, "HoldKey 15"}, {153, "ReleaseKey 15"},
+    {200, "HoldKey 50"}, {203, "ReleaseKey 50"}, {235, "state"},
+    {245, "HoldKey 15"}, {248, "ReleaseKey 15"}, {295, "state"},
+    {315, "HoldKey 15"}, {318, "ReleaseKey 15"},
+    {355, "HoldKey 50"}, {358, "ReleaseKey 50"},
+    {400, "HoldKey 15"}, {403, "ReleaseKey 15"}, {445, "state"},
+    {470, "HoldKey 15"}, {473, "ReleaseKey 15"}, {520, "state"},
+};
+const int kPipboyArmsShots[] = {65, 95, 105, 112, 135, 295, 445, 520};
+const ControlScript kPipboyArms{kPipboyArmsScript, {}, kPipboyArmsShots, 535};
+
+const ScriptLine kPipboyTabsScript[] = {
+    {40, "HoldKey 15"}, {43, "ReleaseKey 15"}, {95, "state"},
+    {100, "HoldKey 60"}, {103, "ReleaseKey 60"}, {135, "state"},
+    {150, "HoldKey 61"}, {153, "ReleaseKey 61"}, {190, "state"},
+};
+const int kPipboyTabsShots[] = {95, 105, 112, 135, 160, 190};
+const ControlScript kPipboyTabs{kPipboyTabsScript, {}, kPipboyTabsShots, 210};
+
+const ScriptLine kPipboyEquipScript[] = {
+    {34, "SetPCCanUsePowerArmor 1"},
+    {35, "player.AddItem 00020423 1"}, {36, "player.AddItem 00014E13 1"},
+    {40, "HoldKey 15"}, {43, "ReleaseKey 15"}, {90, "state"},
+    {100, "player.EquipItem 00020423"}, {120, "state"},
+    {140, "player.EquipItem 00014E13"}, {160, "state"},
+    {180, "HoldKey 15"}, {183, "ReleaseKey 15"},
+    {220, "player.SexChange"}, {250, "HoldKey 15"}, {253, "ReleaseKey 15"}, {295, "state"},
+    {320, "HoldKey 15"}, {323, "ReleaseKey 15"}, {370, "state"},
+};
+const int kPipboyEquipShots[] = {90, 120, 160, 295, 370};
+const ControlScript kPipboyEquip{kPipboyEquipScript, {}, kPipboyEquipShots, 385};
+
+const ScriptLine kPipboyReloadScript[] = {
+    {40, "SaveGame sm64nv_pipboy_test"}, {60, "HoldKey 15"}, {63, "ReleaseKey 15"}, {100, "state"},
+    {120, "LoadGame sm64nv_pipboy_test"}, {220, "HoldKey 15"}, {223, "ReleaseKey 15"}, {260, "state"},
+    {290, "HoldKey 15"}, {293, "ReleaseKey 15"}, {340, "state"},
+};
+const int kPipboyReloadShots[] = {100, 260, 340};
+const ControlScript kPipboyReload{kPipboyReloadScript, {}, kPipboyReloadShots, 355};
+
 
 // the doctor is stood on open floor, then a run east at him and a drop onto his head
 const ScriptLine kActorsScript[] = {
@@ -1220,6 +1266,7 @@ void release_control(const char *reason) {
     drop_mario();
     g_ctl.placed = false, g_ctl.carry = 0, g_ctl.settle = 0;
     mario_mesh_hide();
+    pipboy_arms_reset();
     release_player(g_ctl.saved);
     logf("control release tick=%d reason=%s", g_ctl.tick, reason);
     // a save load replaces what was put back so there is nothing to read back
@@ -1775,6 +1822,7 @@ void control_tick() {
         else if (!strncmp(text, "place ", 6)) place_actor(text + 6);
         else if (!strncmp(text, "set ", 4)) set_placed(text + 4);
         else if (!strcmp(text, "state")) {
+            pipboy_arms_log();
             logf("control state tick=%d %s", t, describe(control_state()).c_str());
             logf("mesh chain tick=%d %s", t, mario_mesh_chain().c_str());
             logf("body chain tick=%d %s", t, node_chain(fnv::player()->renderState->niNode).c_str());
@@ -1886,6 +1934,7 @@ void control_frame() {
     // the game lowers a player without collision, slowly and never far
     // he is placed higher by what he was found low the frame before
     if (g_ctl.placed) g_ctl.settle = std::clamp(g_ctl.settle + g_ctl.last.z - player_pos().z, -kSettleMost, kSettleMost);
+    pipboy_arms_update(held() && g_config.pipboy_arms);
     keep_pad_hooked();
     keep_calls_hooked();
     Pad pad;
@@ -1979,6 +2028,10 @@ void on_frame() {
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
+    else if (g_config.scenario == "pipboytabs") tick_control_scenario(kPipboyTabs);
+    else if (g_config.scenario == "pipboyarms") tick_control_scenario(kPipboyArms);
+    else if (g_config.scenario == "pipboyequip") tick_control_scenario(kPipboyEquip);
+    else if (g_config.scenario == "pipboyreload") tick_control_scenario(kPipboyReload);
     else if (g_config.scenario == "actors") tick_control_scenario(kActors);
     else if (g_config.scenario == "attack") tick_control_scenario(kAttack);
     else if (g_config.scenario == "hurt" || g_config.scenario == "nometer") tick_control_scenario(kHurt);
