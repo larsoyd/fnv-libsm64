@@ -341,6 +341,8 @@ const ScriptLine kPipboyViewScript[] = {
 };
 const int kPipboyViewShots[] = {40, 55, 95, 140, 200, 240, 280, 320, 380};
 const ControlScript kPipboyView{kPipboyViewScript, {}, kPipboyViewShots, 395};
+const int kPipboyHandoffShots[] = {125, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 145, 155};
+const ControlScript kPipboyHandoff{kPipboyViewScript, {}, kPipboyHandoffShots, 395};
 
 const ScriptLine kPipboyTabsScript[] = {
     {40, "HoldKey 15"}, {43, "ReleaseKey 15"}, {95, "state"},
@@ -2031,7 +2033,7 @@ void control_frame() {
     if (!taken() || g_done) return;
     if (hide_body()) logf("control rehide tick=%d", g_ctl.tick);
     Vec3 drawn = draw_mario();
-    mario_mesh_hide(pipboy_active());
+    mario_mesh_hide(pipboy_active() && !control_state().third);
     if (in_move(g_ctl.tick)) track_smooth(std::hypot(drawn.x - g_ctl.last.x, drawn.y - g_ctl.last.y, drawn.z - g_ctl.last.z));
     g_ctl.last = drawn;
     move_player({drawn.x, drawn.y, drawn.z + g_ctl.settle});
@@ -2087,6 +2089,7 @@ void on_frame() {
     else if (g_config.scenario == "sound") tick_control_scenario(kSound);
     else if (g_config.scenario == "soundpause") tick_control_scenario(kSoundPause);
     else if (g_config.scenario == "pipboy") tick_control_scenario(kPipboy);
+    else if (g_config.scenario == "pipboyhandoff") tick_control_scenario(kPipboyHandoff);
     else if (g_config.scenario == "pipboyview") tick_control_scenario(kPipboyView);
     else if (g_config.scenario == "pipboytabs") tick_control_scenario(kPipboyTabs);
     else if (g_config.scenario == "pipboyarms") tick_control_scenario(kPipboyArms);
